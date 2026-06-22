@@ -8,28 +8,31 @@ import {
 } from '../lib/advances'
 import { formatCurrency } from '../lib/payroll'
 import { formatDate } from '../lib/dates'
+import QueueSectionHeader, { QueueEmptyState } from './QueueSectionHeader'
 
 /**
  * Site Incharge's advance review queue — pending_site_incharge rows.
- * Mirrors the OTRequestsFMContent layout/visuals.
+ * Premium card layout shared visually with the OT and Leave FM queues.
  */
-export default function AdvanceRequestsFMContent() {
+export default function AdvanceRequestsFMContent({ onCountChange }) {
   const { user } = useAuth()
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const [busy, setBusy]       = useState({})
 
-  const load = async () => {
-    setLoading(true)
-    const { data, error: err } = await fetchPendingAdvancesForFM()
-    setLoading(false)
-    if (err) { setError(err.message); return }
-    setError(null)
-    setRows(data || [])
-  }
-
-  useEffect(() => { load() }, [])
+  useEffect(() => {
+    let alive = true
+    fetchPendingAdvancesForFM().then(({ data, error: err }) => {
+      if (!alive) return
+      setLoading(false)
+      if (err) { setError(err.message); return }
+      setError(null)
+      setRows(data || [])
+    })
+    return () => { alive = false }
+  }, [])
+  useEffect(() => { onCountChange?.(rows.length) }, [rows.length, onCountChange])
 
   const decide = async (id, action) => {
     if (!user?.id) return
@@ -41,57 +44,63 @@ export default function AdvanceRequestsFMContent() {
     setRows((p) => p.filter((r) => r.id !== id))
   }
 
-  const total = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)
-
-  if (loading) return <p className="text-sm text-[#64748B] py-4">Loading advance requests…</p>
-  if (rows.length === 0) return (
-    <p className="text-sm text-[#64748B] py-4">
-      No advance requests pending your review.
-    </p>
-  )
-
   return (
-    <div className="space-y-3">
-      <p className="text-xs text-[#64748B]">
-        <span className="font-semibold text-[#0F172A]">{rows.length}</span> pending ·{' '}
-        <span className="text-[#F59E0B] font-semibold">{formatCurrency(total)}</span> total
-      </p>
-      {error && <p className="text-xs text-[#EF4444]">{error}</p>}
-      <ul className="space-y-2">
-        {rows.map((r) => {
+    <div>
+      <QueueSectionHeader title="Advance Requests" count={loading ? 0 : rows.length} />
+      {error && <p className="mb-3 text-sm text-red-600">{error}</p>}
+
+      {loading ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-sm text-gray-400">
+          Loading advance requests…
+        </div>
+      ) : rows.length === 0 ? (
+        <QueueEmptyState text="No pending requests" />
+      ) : (
+        rows.map((r) => {
           const isBusy = !!busy[r.id]
+          const name = r.worker_name || 'Unnamed worker'
           return (
-            <li key={r.id} className="card p-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold text-[#0F172A] truncate">{r.worker_name}</p>
-                <p className="text-xs text-[#64748B] mt-0.5">
-                  <span className="font-semibold text-[#0F172A]">{formatCurrency(r.amount)}</span>
-                  {' · '}{paymentModeLabel(r.payment_mode)}
-                  {' · '}Week of {formatDate(r.week_start)}
-                  {' · '}by {r.supervisor_name}
-                </p>
+            <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-3 hover:shadow-md transition-shadow">
+              <div className="px-5 pt-4 pb-3 flex items-start gap-4">
+                <div className="w-10 h-10 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                  {name.charAt(0).toUpperCase()}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="font-semibold text-gray-900">{name}</span>
+                    <span className="text-xs text-gray-400">Week of {formatDate(r.week_start)}</span>
+                  </div>
+                  <p className="text-sm text-gray-600 mt-1">
+                    <span className="font-semibold text-gray-900">{formatCurrency(r.amount)}</span>
+                    {' · '}{paymentModeLabel(r.payment_mode)}
+                    {' · '}by {r.supervisor_name}
+                  </p>
+                </div>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full border flex-shrink-0 bg-green-50 text-green-700 border-green-200">
+                  Advance
+                </span>
               </div>
-              <div className="flex items-center gap-2 flex-shrink-0">
-                {isBusy && <span className="text-xs text-[#94A3B8]">Saving…</span>}
+
+              <div className="px-5 pb-4 flex gap-2 items-center">
                 <button
                   onClick={() => decide(r.id, 'approve')}
                   disabled={isBusy}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-md bg-[#10B981] hover:bg-[#059669] text-white disabled:opacity-60 min-h-[36px]"
+                  className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-60"
                 >
-                  Approve → Director
+                  {isBusy ? 'Saving…' : 'Approve → send to Director'}
                 </button>
                 <button
                   onClick={() => decide(r.id, 'reject')}
                   disabled={isBusy}
-                  className="text-xs font-semibold px-3 py-1.5 rounded-md border border-[#FECACA] text-[#B91C1C] hover:bg-[#FEF2F2] disabled:opacity-60 min-h-[36px]"
+                  className="px-4 py-2.5 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
                 >
                   Reject
                 </button>
               </div>
-            </li>
+            </div>
           )
-        })}
-      </ul>
+        })
+      )}
     </div>
   )
 }

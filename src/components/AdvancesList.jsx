@@ -6,13 +6,13 @@ import { fetchAdvancesWithNames } from '../lib/advances'
 // Status → pill style + label. Keys are the real DB `advance_status` values;
 // only the displayed text changes (e.g. pending_boss → "Pending Director").
 const STATUS_BADGES = {
-  approved:              { label: 'Approved',        className: 'bg-green-50 text-green-700 border-green-200' },
-  direct:                { label: 'Direct',          className: 'bg-blue-50 text-blue-700 border-blue-200' },
-  rejected:              { label: 'Rejected',        className: 'bg-red-50 text-red-700 border-red-200' },
-  pending_site_incharge: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  pending_field_manager: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border-amber-200' },
-  pending_boss:          { label: 'Pending Director', className: 'bg-orange-50 text-orange-700 border-orange-200' },
-  partial:               { label: 'Partial',         className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
+  approved:              { label: 'Approved',        className: 'bg-gray-900 text-white' },
+  direct:                { label: 'Direct',          className: 'bg-gray-900 text-white' },
+  partial:               { label: 'Partial',         className: 'bg-gray-900 text-white' },
+  rejected:              { label: 'Rejected',        className: 'bg-red-50 text-red-600 border border-red-200' },
+  pending_site_incharge: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  pending_field_manager: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border border-amber-200' },
+  pending_boss:          { label: 'Pending Director', className: 'bg-amber-50 text-amber-700 border border-amber-200' },
 }
 
 const PAGE_SIZE = 5 // date-groups shown per page
@@ -88,9 +88,9 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
   const shownGroups = groups.slice(0, visibleGroups)
 
   const cards = [
-    { label: 'Total Advances', value: summary.total, valueClass: 'text-blue-600' },
-    { label: 'Cash',           value: summary.cash,  valueClass: 'text-green-600' },
-    { label: 'Bank Transfer',  value: summary.bank,  valueClass: 'text-purple-600' },
+    { label: 'Total Advances', value: summary.total, accent: 'border-l-4 border-l-[#C0272D]' },
+    { label: 'Cash',           value: summary.cash,  accent: '' },
+    { label: 'Bank Transfer',  value: summary.bank,  accent: '' },
   ]
 
   return (
@@ -129,10 +129,10 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
 
       {/* Summary cards */}
       <div className="grid grid-cols-3 gap-4 mb-6">
-        {cards.map(({ label, value, valueClass }) => (
-          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
-            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
-            <p className={`text-2xl font-bold ${valueClass}`}>{inr(value)}</p>
+        {cards.map(({ label, value, accent }) => (
+          <div key={label} className={`bg-white rounded-2xl border border-gray-100 shadow-sm p-5 ${accent}`}>
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-2">{label}</p>
+            <p className="text-2xl font-bold text-gray-900">{inr(value)}</p>
           </div>
         ))}
       </div>
@@ -175,7 +175,7 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
                     return (
                       <div key={r.id} className="flex items-center gap-4 py-4">
                         {/* Worker avatar */}
-                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-semibold text-gray-600 text-sm flex-shrink-0">
+                        <div className="w-10 h-10 rounded-full bg-[#0F172A] flex items-center justify-center font-semibold text-white text-sm flex-shrink-0">
                           {workerName.charAt(0).toUpperCase()}
                         </div>
 
@@ -187,11 +187,11 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
 
                         {/* Amount + mode */}
                         <div className="text-right flex-shrink-0">
-                          <p className="font-bold text-gray-900">{inr(r.amount)}</p>
+                          <p className="text-lg font-bold text-gray-900">{inr(r.amount)}</p>
                           <div className="flex items-center gap-1 justify-end mt-0.5">
                             {isBank
-                              ? <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">🏦 Bank</span>
-                              : <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">💵 Cash</span>}
+                              ? <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">Bank Transfer</span>
+                              : <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded-full">Cash</span>}
                           </div>
                         </div>
 

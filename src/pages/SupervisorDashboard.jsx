@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
   ClipboardCheck, FileText, Users, FileCheck2,
-  CheckCircle2, Circle, ChevronRight, ShieldCheck,
+  CheckCircle2, Circle, ChevronRight,
 } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
 import LeaveQueue from '../components/LeaveQueue'
@@ -33,6 +33,12 @@ export default function SupervisorDashboard() {
   const [team, setTeam] = useState([])
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [loadingTeam, setLoadingTeam] = useState(true)
+
+  // Site Incharge approval-queue pending counts (lifted from the child queues).
+  const [leaveCount, setLeaveCount]     = useState(0)
+  const [otCount, setOtCount]           = useState(0)
+  const [advanceCount, setAdvanceCount] = useState(0)
+  const totalPending = leaveCount + otCount + advanceCount
 
   // ── Task completion status ─────────────────────────────
   useEffect(() => {
@@ -160,37 +166,25 @@ export default function SupervisorDashboard() {
         )}
       </div>
 
-      {/* Site Incharge queues — secondary, moved to bottom */}
+      {/* Site Incharge approval queue — secondary, moved to bottom */}
       {isFM && (
-        <div className="space-y-6 animate-fade-in-up">
-          <div className="flex items-center gap-3 pt-2 pb-1 border-t border-slate-200">
-            <div className="flex items-center gap-2 pt-4">
-              <span className="badge badge-slate"><ShieldCheck className="h-3 w-3" /> Site Incharge</span>
-              <h3 className="text-base font-semibold text-[#0F172A] tracking-tight">Approval queues</h3>
+        <div className="animate-fade-in-up border-t border-slate-200 pt-6">
+          {/* Page header */}
+          <div className="mb-6">
+            <div className="flex items-center gap-2 mb-1">
+              <span className="text-xs font-semibold bg-[#0F172A] text-white px-2.5 py-1 rounded-full">Site Incharge</span>
+              <span className="text-gray-300">·</span>
+              <span className="text-sm text-gray-500">Approval Queue</span>
             </div>
+            <h1 className="text-2xl font-bold text-gray-900">Pending Reviews</h1>
+            <p className="text-sm text-gray-400 mt-1">
+              {totalPending} item{totalPending !== 1 ? 's' : ''} awaiting your approval
+            </p>
           </div>
 
-          {/* Leave review */}
-          <div>
-            <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-2">Leave requests pending your review</p>
-            <LeaveQueue stage="field_manager" />
-          </div>
-
-          {/* OT review */}
-          <div>
-            <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-2">OT requests (&gt;3 hrs) pending your review</p>
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-              <OTRequestsFMContent />
-            </div>
-          </div>
-
-          {/* Advance review */}
-          <div>
-            <p className="text-xs font-semibold text-[#64748B] uppercase tracking-wider mb-2">Advance requests (&gt;₹1000) pending your review</p>
-            <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-4">
-              <AdvanceRequestsFMContent />
-            </div>
-          </div>
+          <LeaveQueue stage="field_manager" onCountChange={setLeaveCount} />
+          <OTRequestsFMContent onCountChange={setOtCount} />
+          <AdvanceRequestsFMContent onCountChange={setAdvanceCount} />
         </div>
       )}
     </DashboardShell>

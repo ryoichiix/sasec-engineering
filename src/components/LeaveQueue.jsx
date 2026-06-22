@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/dates'
 import LeaveStatusPill from './LeaveStatusPill'
+import QueueSectionHeader, { QueueEmptyState } from './QueueSectionHeader'
 // Notifications handled exclusively by DB trigger — no client-side calls needed
 import {
   fetchAttachmentsByLeaveRequestId,
@@ -26,7 +27,7 @@ function dateRange(start, end) {
  * stage="supervisor"
  *   Read-only view of all requests (all statuses).
  */
-export default function LeaveQueue({ stage }) {
+export default function LeaveQueue({ stage, onCountChange }) {
   const [rows, setRows]       = useState([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -115,6 +116,9 @@ export default function LeaveQueue({ stage }) {
     return () => { isMounted = false }
   }, [stage, isFieldManager, isBoss, refreshTick])
 
+  // Report pending count to parent (Site Incharge approval-queue header).
+  useEffect(() => { onCountChange?.(rows.length) }, [rows.length, onCountChange])
+
   // ── Field Manager decision ──────────────────────────────────
   // All notifications are handled exclusively by the DB trigger (notify_leave_event).
   // No client-side notify calls — avoids duplicates.
@@ -176,6 +180,86 @@ export default function LeaveQueue({ stage }) {
     // DB trigger fires the notification. Remove from local list and clear draft.
     setDraft((d) => { const n = { ...d }; delete n[id]; return n })
     setRefreshTick((t) => t + 1)
+  }
+
+  // ── Site Incharge (Field Manager) premium render ──────────────
+  if (isFieldManager) {
+    return (
+      <div>
+        <QueueSectionHeader title="Leave Requests" count={loading ? 0 : rows.length} />
+
+        {loading ? (
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-sm text-gray-400">
+            Loading…
+          </div>
+        ) : loadError ? (
+          <p className="mb-3 text-sm text-red-600">{loadError}</p>
+        ) : rows.length === 0 ? (
+          <QueueEmptyState text="No pending requests" />
+        ) : (
+          rows.map((r) => {
+            const d = draft[r.id] || {}
+            const audioUrl = voiceUrls[r.id]
+            const name = r.applicant_name || 'Unknown supervisor'
+            return (
+              <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-3 hover:shadow-md transition-shadow">
+                <div className="px-5 pt-4 pb-3 flex items-start gap-4">
+                  <div className="w-10 h-10 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                    {name.charAt(0).toUpperCase()}
+                  </div>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="font-semibold text-gray-900">{name}</span>
+                      <span className="text-xs text-gray-400">{dateRange(r.start_date, r.end_date)}</span>
+                    </div>
+                    <p className="text-sm text-gray-600 mt-1">{r.reason}</p>
+                  </div>
+                  <span className="text-xs font-semibold px-2.5 py-1 rounded-full border flex-shrink-0 bg-blue-50 text-blue-700 border-blue-200">
+                    Leave
+                  </span>
+                </div>
+
+                {audioUrl && (
+                  <div className="px-5 pb-3">
+                    <audio controls src={audioUrl} className="w-full h-8" preload="metadata" />
+                  </div>
+                )}
+
+                <div className="px-5 pb-3">
+                  <textarea
+                    placeholder="Add a note (optional)..."
+                    rows={2}
+                    value={d.note ?? ''}
+                    onChange={(e) =>
+                      setDraft((p) => ({ ...p, [r.id]: { ...(p[r.id] || {}), note: e.target.value } }))
+                    }
+                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 text-gray-700 placeholder-gray-300"
+                  />
+                  {d.error && <p className="text-xs text-red-600 mt-1">{d.error}</p>}
+                </div>
+
+                <div className="px-5 pb-4 flex gap-2 items-center">
+                  <button
+                    onClick={() => fmDecide(r, 'approved')}
+                    disabled={d.busy}
+                    className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                  >
+                    {d.busy ? 'Saving…' : 'Approve → send to Director'}
+                  </button>
+                  <button
+                    onClick={() => fmDecide(r, 'rejected')}
+                    disabled={d.busy}
+                    className="px-4 py-2.5 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
+                  >
+                    Reject
+                  </button>
+                </div>
+              </div>
+            )
+          })
+        )}
+      </div>
+    )
   }
 
   // ── Render ────────────────────────────────────────────────────
