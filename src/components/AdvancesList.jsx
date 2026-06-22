@@ -1,29 +1,40 @@
 import { useEffect, useMemo, useState } from 'react'
-import { Banknote, Landmark } from 'lucide-react'
 import { todayLocal, formatDate } from '../lib/dates'
-import { weekRange, formatCurrency } from '../lib/payroll'
-import { fetchAdvancesWithNames, paymentModeLabel } from '../lib/advances'
+import { weekRange } from '../lib/payroll'
+import { fetchAdvancesWithNames } from '../lib/advances'
 
+// Status → pill style + label. Keys are the real DB `advance_status` values;
+// only the displayed text changes (e.g. pending_boss → "Pending Director").
 const STATUS_BADGES = {
-  direct:                { label: 'Direct',                    className: 'bg-emerald-100 text-emerald-800' },
-  pending_site_incharge: { label: 'Pending',                   className: 'bg-amber-100 text-amber-800' },
-  pending_field_manager: { label: 'Pending',                   className: 'bg-amber-100 text-amber-800' },
-  pending_boss:          { label: 'Pending',                   className: 'bg-sky-100 text-sky-800' },
-  approved:              { label: 'Approved',                  className: 'bg-emerald-100 text-emerald-800' },
-  rejected:              { label: 'Rejected',                  className: 'bg-rose-100 text-rose-800' },
+  approved:              { label: 'Approved',        className: 'bg-green-50 text-green-700 border-green-200' },
+  direct:                { label: 'Direct',          className: 'bg-blue-50 text-blue-700 border-blue-200' },
+  rejected:              { label: 'Rejected',        className: 'bg-red-50 text-red-700 border-red-200' },
+  pending_site_incharge: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  pending_field_manager: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border-amber-200' },
+  pending_boss:          { label: 'Pending Director', className: 'bg-orange-50 text-orange-700 border-orange-200' },
+  partial:               { label: 'Partial',         className: 'bg-indigo-50 text-indigo-700 border-indigo-200' },
 }
 
 const PAGE_SIZE = 5 // date-groups shown per page
+
+const inr = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`
 
 function dateKey(createdAt) {
   return String(createdAt).slice(0, 10)
 }
 
+function timeLabel(createdAt) {
+  const d = new Date(createdAt)
+  return Number.isNaN(d.getTime())
+    ? ''
+    : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+}
+
 /**
- * Advances list with summary bar + date-range filter + grouping.
+ * Advances list with summary cards + date-range filter + grouping.
  *
  * scope='mine'  → only advances entered by `supervisorId` (Supervisor view)
- * scope='all'   → advances from every supervisor (Boss view)
+ * scope='all'   → advances from every supervisor (Director / Site Incharge view)
  */
 export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
   const today = todayLocal()
@@ -76,133 +87,141 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
 
   const shownGroups = groups.slice(0, visibleGroups)
 
+  const cards = [
+    { label: 'Total Advances', value: summary.total, valueClass: 'text-blue-600' },
+    { label: 'Cash',           value: summary.cash,  valueClass: 'text-green-600' },
+    { label: 'Bank Transfer',  value: summary.bank,  valueClass: 'text-purple-600' },
+  ]
+
   return (
-    <div className="space-y-4">
-      {/* Date range filter */}
-      <div className="bg-white border border-slate-200 rounded-lg px-6 py-4 flex flex-wrap items-end gap-4">
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">From</label>
+    <div>
+      {/* Date-range filter */}
+      <div className="flex items-center gap-3 mb-6 flex-wrap">
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+          <span className="text-xs text-gray-400">From</span>
           <input
             type="date"
             value={startDate}
             max={endDate}
             onChange={(e) => setStartDate(e.target.value)}
-            className="px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            className="text-sm text-gray-700 outline-none bg-transparent"
           />
         </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">To</label>
+        <div className="flex items-center gap-2 bg-white border border-gray-200 rounded-xl px-3 py-2">
+          <span className="text-xs text-gray-400">To</span>
           <input
             type="date"
             value={endDate}
             min={startDate}
             max={todayLocal()}
             onChange={(e) => setEndDate(e.target.value)}
-            className="px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-brand"
+            className="text-sm text-gray-700 outline-none bg-transparent"
           />
         </div>
         <button
           type="button"
           onClick={() => { setStartDate(defaultWeek.start); setEndDate(defaultWeek.end) }}
-          className="text-xs font-medium px-3 py-2 border border-slate-300 rounded-md text-slate-600 hover:bg-slate-50"
+          className="px-4 py-2 bg-gray-900 text-white text-sm font-medium rounded-xl hover:bg-gray-700 transition-colors"
         >
           This week
         </button>
       </div>
 
-      {/* Summary bar */}
-      <div className="bg-white border border-slate-200 rounded-lg">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h3 className="text-sm font-semibold text-slate-900">Summary</h3>
-          <p className="text-xs text-slate-500 mt-0.5">
-            {formatDate(startDate)} – {formatDate(endDate)}
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-3 divide-y sm:divide-y-0 sm:divide-x divide-slate-100">
-          <SummaryCell label="Total advances" value={summary.total} pillClass="bg-slate-100 text-slate-800 ring-slate-200" />
-          <SummaryCell label="Cash" value={summary.cash} pillClass="bg-emerald-50 text-emerald-800 ring-emerald-200" />
-          <SummaryCell label="Bank Transfer" value={summary.bank} pillClass="bg-sky-50 text-sky-800 ring-sky-200" />
-        </div>
+      {/* Summary cards */}
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        {cards.map(({ label, value, valueClass }) => (
+          <div key={label} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5">
+            <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">{label}</p>
+            <p className={`text-2xl font-bold ${valueClass}`}>{inr(value)}</p>
+          </div>
+        ))}
       </div>
 
       {/* Grouped list */}
-      <div className="bg-white border border-slate-200 rounded-lg">
-        <div className="px-6 py-4 border-b border-slate-100">
-          <h3 className="text-sm font-semibold text-slate-900">
-            {scope === 'mine' ? 'Advances given' : 'Advances — all supervisors'}
-          </h3>
+      {error ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-10 text-sm text-red-600">
+          {error}
         </div>
-        {error ? (
-          <div className="px-6 py-10 text-sm text-rose-600">{error}</div>
-        ) : loading ? (
-          <div className="px-6 py-10 text-sm text-slate-500">Loading…</div>
-        ) : groups.length === 0 ? (
-          <div className="px-6 py-10 text-sm text-slate-500">
-            No advances in this date range.
-          </div>
-        ) : (
-          <>
-            <div className="divide-y divide-slate-100">
-              {shownGroups.map((g) => (
-                <div key={g.date}>
-                  <div className="px-6 py-2.5 bg-slate-50">
-                    <p className="text-xs font-semibold text-slate-600 uppercase tracking-wide">
-                      {formatDate(g.date)}
-                    </p>
-                  </div>
-                  <ul className="divide-y divide-slate-100">
-                    {g.items.map((r) => {
-                      const badge = STATUS_BADGES[r.advance_status] || STATUS_BADGES.direct
-                      const isBank = r.payment_mode === 'bank_transfer'
-                      return (
-                        <li key={r.id} className="px-6 py-3 flex items-center justify-between gap-3 flex-wrap">
-                          <div className="min-w-0 flex items-center gap-3">
-                            <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg flex-shrink-0 ${isBank ? 'bg-sky-50 text-sky-600' : 'bg-emerald-50 text-emerald-600'}`}>
-                              {isBank ? <Landmark className="h-4 w-4" /> : <Banknote className="h-4 w-4" />}
-                            </span>
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-slate-900 truncate">{r.worker_name}</p>
-                              <p className="text-xs text-slate-500">
-                                {formatCurrency(r.amount)} · {paymentModeLabel(r.payment_mode)}
-                                {scope === 'all' && <> · Given by {r.supervisor_name}</>}
-                              </p>
-                            </div>
+      ) : loading ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-10 text-sm text-gray-400">
+          Loading…
+        </div>
+      ) : groups.length === 0 ? (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-10 text-sm text-gray-400 text-center">
+          No advances in this date range.
+        </div>
+      ) : (
+        <>
+          {shownGroups.map((g) => (
+            <div key={g.date}>
+              {/* Date group header */}
+              <div className="flex items-center gap-3 mb-3 mt-6 first:mt-0">
+                <p className="text-xs font-semibold uppercase tracking-widest text-gray-400">{formatDate(g.date)}</p>
+                <div className="flex-1 h-px bg-gray-100" />
+              </div>
+
+              {/* Card container for this day's rows */}
+              <div className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden">
+                <div className="px-5 divide-y divide-gray-50">
+                  {g.items.map((r) => {
+                    const badge = STATUS_BADGES[r.advance_status] || STATUS_BADGES.direct
+                    const isBank = r.payment_mode === 'bank_transfer'
+                    const workerName = r.worker_name || 'Unnamed worker'
+                    const meta = [
+                      r.worker_designation,
+                      scope === 'all' ? `by ${r.supervisor_name}` : null,
+                    ].filter(Boolean).join(' · ') || timeLabel(r.created_at)
+
+                    return (
+                      <div key={r.id} className="flex items-center gap-4 py-4">
+                        {/* Worker avatar */}
+                        <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-semibold text-gray-600 text-sm flex-shrink-0">
+                          {workerName.charAt(0).toUpperCase()}
+                        </div>
+
+                        {/* Worker info */}
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm truncate">{workerName}</p>
+                          <p className="text-xs text-gray-400 mt-0.5 truncate">{meta}</p>
+                        </div>
+
+                        {/* Amount + mode */}
+                        <div className="text-right flex-shrink-0">
+                          <p className="font-bold text-gray-900">{inr(r.amount)}</p>
+                          <div className="flex items-center gap-1 justify-end mt-0.5">
+                            {isBank
+                              ? <span className="text-xs text-purple-600 bg-purple-50 px-2 py-0.5 rounded-full">🏦 Bank</span>
+                              : <span className="text-xs text-green-600 bg-green-50 px-2 py-0.5 rounded-full">💵 Cash</span>}
                           </div>
-                          <span className={`text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded flex-shrink-0 ${badge.className}`}>
+                        </div>
+
+                        {/* Status badge */}
+                        <div className="flex-shrink-0 ml-2 hidden sm:block">
+                          <span className={`text-xs font-semibold border px-2.5 py-1 rounded-full ${badge.className}`}>
                             {badge.label}
                           </span>
-                        </li>
-                      )
-                    })}
-                  </ul>
+                        </div>
+                      </div>
+                    )
+                  })}
                 </div>
-              ))}
-            </div>
-            {visibleGroups < groups.length && (
-              <div className="px-6 py-4 border-t border-slate-100 text-center">
-                <button
-                  type="button"
-                  onClick={() => setVisibleGroups((v) => v + PAGE_SIZE)}
-                  className="text-xs font-medium px-3 py-1.5 border border-slate-300 rounded-md text-slate-600 hover:bg-slate-50"
-                >
-                  Load more
-                </button>
               </div>
-            )}
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
+            </div>
+          ))}
 
-function SummaryCell({ label, value, pillClass }) {
-  return (
-    <div className="px-6 py-4">
-      <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">{label}</p>
-      <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-sm font-semibold ring-1 ring-inset ${pillClass}`}>
-        {formatCurrency(value)}
-      </span>
+          {visibleGroups < groups.length && (
+            <div className="text-center mt-6">
+              <button
+                type="button"
+                onClick={() => setVisibleGroups((v) => v + PAGE_SIZE)}
+                className="text-xs font-medium px-4 py-2 border border-gray-200 rounded-xl text-gray-600 hover:bg-gray-50 transition-colors"
+              >
+                Load more
+              </button>
+            </div>
+          )}
+        </>
+      )}
     </div>
   )
 }

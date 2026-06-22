@@ -127,7 +127,7 @@ export async function fetchAdvancesWithNames({ startDate, endDate, supervisorId 
 
   const [wRes, sRes] = await Promise.all([
     workerIds.size > 0
-      ? supabase.from('workers').select('id, full_name').in('id', Array.from(workerIds))
+      ? supabase.from('workers').select('id, full_name, designations(name)').in('id', Array.from(workerIds))
       : Promise.resolve({ data: [], error: null }),
     supervisorIds.size > 0
       ? supabase.from('profiles').select('id, full_name').in('id', Array.from(supervisorIds))
@@ -135,16 +135,25 @@ export async function fetchAdvancesWithNames({ startDate, endDate, supervisorId 
   ])
   if (wRes.error) return { error: wRes.error, data: null }
 
-  const nameById = {}
-  for (const p of [...(wRes.data || []), ...(sRes.data || [])]) nameById[p.id] = p.full_name
+  const nameById  = {}
+  const desigById = {}
+  for (const w of wRes.data || []) {
+    nameById[w.id]  = w.full_name
+    desigById[w.id] = w.designations?.name || ''
+  }
+  for (const p of sRes.data || []) nameById[p.id] = p.full_name
 
   return {
     error: null,
-    data: (rows || []).map((r) => ({
-      ...r,
-      worker_name:     nameById[r.worker_table_id || r.worker_id] || 'Unnamed worker',
-      supervisor_name: nameById[r.supervisor_id] || 'Supervisor',
-    })),
+    data: (rows || []).map((r) => {
+      const wid = r.worker_table_id || r.worker_id
+      return {
+        ...r,
+        worker_name:        nameById[wid] || 'Unnamed worker',
+        worker_designation: desigById[wid] || '',
+        supervisor_name:    nameById[r.supervisor_id] || 'Supervisor',
+      }
+    }),
   }
 }
 
