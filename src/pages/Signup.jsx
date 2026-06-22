@@ -93,10 +93,10 @@ export default function Signup() {
                 className={inputCls + ' bg-white'}
               >
                 <option value={ROLES.SUPERVISOR}>Supervisor</option>
-                <option value={ROLES.BOSS}>Boss</option>
+                <option value={ROLES.BOSS}>Director</option>
               </select>
               <p className="text-[10px] text-slate-400 mt-1">
-                Worker accounts are created by the Boss from Workers / Import Workers — they do not sign in to this app.
+                Worker accounts are created by the Director from Workers / Import Workers — they do not sign in to this app.
               </p>
             </Field>
 

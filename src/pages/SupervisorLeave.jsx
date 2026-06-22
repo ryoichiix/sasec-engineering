@@ -125,7 +125,7 @@ export default function SupervisorLeave() {
               Apply for leave
             </h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Your request goes straight to the boss for approval.
+              Your request goes straight to the Director for approval.
             </p>
           </div>
           <form onSubmit={submit} className="px-6 py-5 space-y-4">

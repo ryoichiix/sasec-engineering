@@ -186,7 +186,7 @@ export default function SupervisorWeightCalculator() {
         return
       }
       if (status === 'submitted') {
-        setToast({ type: 'success', message: 'Submitted to Boss.' })
+        setToast({ type: 'success', message: 'Submitted to Director.' })
         setTimeout(() => navigate('/supervisor/weight'), 600)
         return
       }
@@ -485,7 +485,7 @@ export default function SupervisorWeightCalculator() {
           disabled={saving || submitting}
           className="inline-flex items-center gap-2 bg-[#C0272D] hover:bg-[#A01E23] disabled:opacity-50 text-white text-sm font-semibold px-5 py-2.5 rounded-md transition shadow-sm ml-auto"
         >
-          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Submit to Boss
+          {submitting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />} Submit to Director
         </button>
       </div>
 

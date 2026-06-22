@@ -74,7 +74,7 @@ export default function SupervisorAdvances() {
           <div className="px-6 py-4 border-b border-slate-100">
             <h3 className="text-sm font-semibold text-slate-900">Give an advance</h3>
             <p className="text-xs text-slate-500 mt-0.5">
-              Amounts over ₹{ADVANCE_AUTO_THRESHOLD} need Site Incharge and Boss approval before
+              Amounts over ₹{ADVANCE_AUTO_THRESHOLD} need Site Incharge and Director approval before
               they're added to payroll.
             </p>
           </div>

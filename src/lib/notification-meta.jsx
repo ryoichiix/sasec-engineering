@@ -4,8 +4,15 @@ import { CheckCircle2, ArrowRightCircle, XCircle, FileText, PhoneCall, IndianRup
 // strip it since the colored icon circle now conveys that status.
 const LEADING_EMOJI_RE = /^[\p{Emoji_Presentation}\p{Extended_Pictographic}️]+\s*/u
 
+const BOSS_UI_RE = /\b[Bb]oss\b/g
+
+/** Replace legacy "Boss" wording in user-visible copy (e.g. DB notification text). */
+export function formatUiText(text) {
+  return (text || '').replace(BOSS_UI_RE, 'Director')
+}
+
 export function cleanTitle(title) {
-  return (title || '').replace(LEADING_EMOJI_RE, '')
+  return formatUiText((title || '').replace(LEADING_EMOJI_RE, ''))
 }
 
 const COLORS = {

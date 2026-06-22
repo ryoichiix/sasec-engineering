@@ -11,6 +11,7 @@ import {
   computePayroll,
 } from '../lib/payroll'
 import { fetchAllAdvancesForWorker, paymentModeLabel } from '../lib/advances'
+import { LEAVE_STATUS_META } from '../lib/leave'
 
 const WAGE_TYPES = [
   { value: 'daily_rate',    label: 'Daily Rate'    },
@@ -467,7 +468,7 @@ export default function BossWorkerProfile() {
                     'text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded ' +
                     leaveStatusClass(l.status)
                   }>
-                    {l.status?.replace(/_/g, ' ')}
+                    {LEAVE_STATUS_META[l.status]?.label ?? l.status?.replace(/_/g, ' ')}
                   </span>
                 </div>
                 <p className="text-xs text-slate-600 mt-1">{l.reason}</p>
@@ -478,7 +479,7 @@ export default function BossWorkerProfile() {
                 )}
                 {l.boss_note && (
                   <p className="text-[10px] text-slate-500 mt-0.5">
-                    Boss: {l.boss_note}
+                    Director: {l.boss_note}
                   </p>
                 )}
               </li>

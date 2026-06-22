@@ -22,7 +22,7 @@ export default function DashboardShell({ title, children }) {
 
   const roleBadge =
     role === 'boss'
-      ? { label: 'Boss', cls: 'badge-brand' }
+      ? { label: 'Director', cls: 'badge-brand' }
       : { label: isFM ? 'Site Incharge' : 'Supervisor', cls: isFM ? 'badge-gold' : 'badge-info' }
 
   return (
@@ -130,7 +130,7 @@ export default function DashboardShell({ title, children }) {
           <div className="hidden md:flex items-center gap-2 text-right flex-shrink-0">
             <div>
               <p className="text-xs font-semibold text-[#0F172A] leading-tight">{displayName}</p>
-              <p className="text-[10px] text-[#94A3B8] capitalize">{role}</p>
+              <p className="text-[10px] text-[#94A3B8]">{roleBadge.label}</p>
             </div>
           </div>
         </header>

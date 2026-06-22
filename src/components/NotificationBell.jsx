@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
-import { getNotifMeta, getNotifPath, cleanTitle } from '../lib/notification-meta'
+import { getNotifMeta, getNotifPath, cleanTitle, formatUiText } from '../lib/notification-meta'
 
 const VISIBLE_LIMIT = 10
 
@@ -142,7 +142,7 @@ export default function NotificationBell() {
                         </div>
                         {n.message && (
                           <p className="text-xs text-slate-500 mt-0.5 line-clamp-2">
-                            {n.message}
+                            {formatUiText(n.message)}
                           </p>
                         )}
                         <p className="text-[10px] text-slate-400 mt-1">

@@ -5,7 +5,7 @@ import DashboardShell from '../components/DashboardShell'
 import EmptyState from '../components/EmptyState'
 import { useAuth } from '../contexts/auth-context'
 import { fetchAllNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
-import { getNotifMeta, getNotifPath, getNotifCategory, cleanTitle } from '../lib/notification-meta'
+import { getNotifMeta, getNotifPath, getNotifCategory, cleanTitle, formatUiText } from '../lib/notification-meta'
 import { todayLocal } from '../lib/dates'
 
 const TABS = [
@@ -163,7 +163,7 @@ export default function Notifications() {
                                 )}
                               </div>
                               {n.message && (
-                                <p className="text-sm text-slate-500 mt-0.5">{n.message}</p>
+                                <p className="text-sm text-slate-500 mt-0.5">{formatUiText(n.message)}</p>
                               )}
                               <p className="text-xs text-slate-400 mt-1.5">
                                 {new Date(n.created_at).toLocaleString(undefined, {

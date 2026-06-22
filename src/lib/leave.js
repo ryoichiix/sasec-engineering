@@ -12,7 +12,7 @@ export const LEAVE_STATUS_META = {
     pill:  'bg-violet-100 text-violet-800 ring-violet-200',
   },
   pending_boss: {
-    label: 'Awaiting Boss',
+    label: 'Awaiting Director',
     pill:  'bg-sky-100 text-sky-800 ring-sky-200',
   },
   callback_requested: {

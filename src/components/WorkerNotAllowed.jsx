@@ -19,7 +19,7 @@ export default function WorkerNotAllowed() {
           worker.
         </p>
         <p className="text-sm text-slate-600 mb-6">
-          This app is for Boss and Supervisor accounts only. Your attendance
+          This app is for Director and Supervisor accounts only. Your attendance
           and payroll are still tracked by your supervisor — please ask them
           for any details you need.
         </p>

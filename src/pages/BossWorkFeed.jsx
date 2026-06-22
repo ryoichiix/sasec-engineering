@@ -22,7 +22,7 @@ function to12hr(time24) {
 }
 
 const roleLabel = (role) =>
-  ({ supervisor: 'Supervisor', boss: 'Boss', field_manager: 'Field Manager' })[role] || 'Supervisor'
+  ({ supervisor: 'Supervisor', boss: 'Director', field_manager: 'Field Manager' })[role] || 'Supervisor'
 
 export default function BossWorkFeed() {
   const [tab, setTab] = useState('updates') // 'updates' | 'reports'

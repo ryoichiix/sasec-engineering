@@ -202,7 +202,7 @@ export default function SupervisorAttendance() {
           <div className="px-6 py-10 text-sm text-rose-600">{workersError}</div>
         ) : workers.length === 0 ? (
           <div className="px-6 py-10 text-sm text-slate-500">
-            No workers found. Ask your boss to add workers to the system.
+            No workers found. Ask your Director to add workers to the system.
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
@@ -295,7 +295,7 @@ export default function SupervisorAttendance() {
                         )}
                         {entry.ot_status === 'pending_boss' && (
                           <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-sky-100 text-sky-800">
-                            Boss approval pending
+                            Director approval pending
                           </span>
                         )}
                         {entry.ot_status === 'approved' && (

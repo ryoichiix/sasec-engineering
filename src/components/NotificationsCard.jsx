@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead } from '../lib/notifications'
 import { formatDate } from '../lib/dates'
+import { formatUiText } from '../lib/notification-meta'
 
 export default function NotificationsCard() {
   const { user } = useAuth()
@@ -60,9 +61,9 @@ export default function NotificationsCard() {
               />
               <div className="flex-1 min-w-0">
                 {n.title && (
-                  <p className="text-sm font-medium text-slate-900">{n.title}</p>
+                  <p className="text-sm font-medium text-slate-900">{formatUiText(n.title)}</p>
                 )}
-                <p className="text-sm text-slate-800">{n.message}</p>
+                <p className="text-sm text-slate-800">{formatUiText(n.message)}</p>
                 <p className="text-xs text-slate-400 mt-0.5">
                   {formatDate(n.created_at)}
                 </p>

@@ -43,7 +43,7 @@ function lastNDates(n) {
 
 export default function BossDashboard() {
   const { profile, user } = useAuth()
-  const firstName = (profile?.full_name || user?.email || 'Boss').split(' ')[0]
+  const firstName = (profile?.full_name || user?.email || 'Director').split(' ')[0]
   const today = todayLocal()
   const month = useMemo(() => monthRange(today), [today])
 

@@ -70,7 +70,7 @@ export default function OTRequestsFMContent() {
                   disabled={isBusy}
                   className="text-xs font-semibold px-3 py-1.5 rounded-md bg-[#10B981] hover:bg-[#059669] text-white disabled:opacity-60 min-h-[36px]"
                 >
-                  Approve → Boss
+                  Approve → Director
                 </button>
                 <button
                   onClick={() => decide(r.id, 'reject')}

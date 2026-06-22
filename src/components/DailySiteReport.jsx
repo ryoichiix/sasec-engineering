@@ -312,7 +312,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
             {overtime && (
               <div className="mt-3 space-y-3">
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-3">
-                  OT requires prior Boss approval. Food &amp; consumables must be planned. Crane/Hydra/Trawler bookings needed.
+                  OT requires prior Director approval. Food &amp; consumables must be planned. Crane/Hydra/Trawler bookings needed.
                 </div>
                 <div className="flex items-center gap-3">
                   <div className="flex-1">

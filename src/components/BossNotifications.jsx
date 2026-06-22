@@ -4,6 +4,7 @@ import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead } from '../lib/notifications'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/dates'
+import { cleanTitle, formatUiText } from '../lib/notification-meta'
 
 // Map notification tab → the route + tab that makes sense to navigate to
 const TAB_ROUTES = {
@@ -224,11 +225,11 @@ export default function BossNotifications() {
                     <div className="flex-1 min-w-0">
                       {n.title && (
                         <p className="text-sm font-medium text-[#0F172A] group-hover:text-[#C0272D] transition-colors">
-                          {n.title}
+                          {cleanTitle(n.title)}
                         </p>
                       )}
                       {n.message && (
-                        <p className="text-sm text-[#475569]">{n.message}</p>
+                        <p className="text-sm text-[#475569]">{formatUiText(n.message)}</p>
                       )}
                       <p className="text-xs text-[#94A3B8] mt-0.5">
                         {formatDate(n.created_at)}

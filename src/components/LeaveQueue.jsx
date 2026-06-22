@@ -266,7 +266,7 @@ export default function LeaveQueue({ stage }) {
                   {/* Boss note */}
                   {r.boss_note && (
                     <p className="text-xs text-slate-500">
-                      <span className="font-medium text-slate-700">Boss note:</span>{' '}
+                      <span className="font-medium text-slate-700">Director note:</span>{' '}
                       {r.boss_note}
                     </p>
                   )}
@@ -276,7 +276,7 @@ export default function LeaveQueue({ stage }) {
                     <div className="flex items-center gap-2 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 text-xs text-amber-800">
                       <span>📞</span>
                       <span>
-                        <span className="font-semibold">Boss requested a callback</span> before
+                        <span className="font-semibold">Director requested a callback</span> before
                         making a final decision.
                         {r.boss_note && ` "${r.boss_note}"`}
                       </span>
@@ -302,7 +302,7 @@ export default function LeaveQueue({ stage }) {
                           disabled={d.busy}
                           className="bg-emerald-600 hover:bg-emerald-700 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2 rounded-md transition"
                         >
-                          {d.busy ? 'Saving…' : 'Approve → send to Boss'}
+                          {d.busy ? 'Saving…' : 'Approve → send to Director'}
                         </button>
                         <button
                           onClick={() => fmDecide(r, 'rejected')}
