@@ -102,7 +102,9 @@ export default function BossPayroll() {
     let cash = 0
     let bank = 0
     for (const a of advances) {
-      const amt = Number(a.amount) || 0
+      const amt = a.advance_status === 'partial'
+        ? Number(a.approved_amount) || 0
+        : Number(a.amount) || 0
       if (a.payment_mode === 'bank_transfer') bank += amt
       else cash += amt
     }
@@ -126,13 +128,15 @@ export default function BossPayroll() {
     }
 
     // Build per-worker advance deduction totals.
-    // Only 'direct' (≤ ₹1000 auto) and 'approved' (boss-approved >₹1000) count.
+    // 'direct' (≤ ₹1000 auto), 'approved' (boss-approved >₹1000) and 'partial'
+    // count. Partial advances deduct only the boss-approved portion.
     // Pending and rejected advances are excluded from payroll.
     const advByWorker = {}
     for (const a of advances) {
       const status = a.advance_status ?? 'direct'
-      if (status !== 'direct' && status !== 'approved') continue
-      advByWorker[a.worker_table_id] = (advByWorker[a.worker_table_id] || 0) + Number(a.amount)
+      if (status !== 'direct' && status !== 'approved' && status !== 'partial') continue
+      const amt = status === 'partial' ? Number(a.approved_amount) || 0 : Number(a.amount) || 0
+      advByWorker[a.worker_table_id] = (advByWorker[a.worker_table_id] || 0) + amt
     }
 
     return workers

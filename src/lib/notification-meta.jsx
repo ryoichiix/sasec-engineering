@@ -71,14 +71,54 @@ export function getNotifMeta(n) {
   return { ...scheme, Icon }
 }
 
-/** Decide where a notification should navigate to, based on its type and the viewer's role. */
-export function getNotifPath(n, role) {
+/**
+ * Decide where a notification should navigate to, based on its type and the
+ * viewer's role.
+ *
+ * - Director (role === 'boss'): every actionable leave/OT/advance review
+ *   (request/decision/alert) lives on the single /boss/requests tabbed hub —
+ *   that's where LeaveQueue (stage="boss"), OTRequestsContent and
+ *   AdvanceRequestsContent actually render. Final-outcome advance
+ *   notifications (partial/approved/rejected) are sent BY the director, not
+ *   to them, so they fall back to /boss/advances (history) defensively.
+ *
+ * - Site Incharge (isFieldManager): the FM review queues (LeaveQueue
+ *   stage="field_manager", OTRequestsFMContent, AdvanceRequestsFMContent)
+ *   are all embedded in the Supervisor dashboard (/supervisor) — there is no
+ *   dedicated Site Incharge route — so "needs your review" notifications
+ *   route there. Outcome notifications they're cc'd on (advance decided)
+ *   route to /supervisor/advances as the closest existing detail page.
+ *
+ * - Supervisor: leave_/ot_ notifications about their own request route to
+ *   the pages that show their own history (/supervisor/leave,
+ *   /supervisor/attendance); advance outcomes route to /supervisor/advances.
+ */
+export function getNotifPath(n, role, isFieldManager = false) {
   const type = n.type || ''
   const isBoss = role === 'boss'
 
-  if (type.startsWith('ot_')) return isBoss ? '/boss/requests' : '/supervisor/attendance'
-  if (type.startsWith('leave_')) return isBoss ? '/boss/requests' : '/supervisor/leave'
-  if (type.startsWith('advance_')) return isBoss ? '/boss/payroll' : '/supervisor/attendance'
+  if (type.startsWith('leave_')) {
+    if (isBoss) return '/boss/requests'
+    if (isFieldManager) return '/supervisor'
+    return '/supervisor/leave'
+  }
+
+  if (type.startsWith('ot_')) {
+    if (isBoss) return '/boss/requests'
+    if (isFieldManager) return '/supervisor'
+    return '/supervisor/attendance'
+  }
+
+  if (type.startsWith('advance_')) {
+    const isOutcome = type === 'advance_partial' || type === 'advance_approved' || type === 'advance_rejected' || type === 'advance_decision'
+    if (isBoss) return isOutcome ? '/boss/advances' : '/boss/requests'
+    if (isFieldManager) return isOutcome ? '/supervisor/advances' : '/supervisor'
+    return '/supervisor/advances'
+  }
+
+  // No notification of this type is created anywhere in the app today, but
+  // /boss/work-feed exists and is the obvious destination if one is added.
+  if (type.startsWith('work_plan')) return isBoss ? '/boss/work-feed' : '/supervisor/work-plan'
 
   return isBoss ? '/boss' : '/supervisor'
 }

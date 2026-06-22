@@ -71,7 +71,7 @@ export async function upsertWeeklyAdvance({
 export async function fetchWeeklyAdvancesInPeriod(start, end) {
   return supabase
     .from('weekly_advances')
-    .select('worker_table_id, amount, week_start, payment_mode, advance_status')
+    .select('worker_table_id, amount, approved_amount, week_start, payment_mode, advance_status')
     .gte('week_start', start)
     .lte('week_start', end)
 }
@@ -108,7 +108,7 @@ export async function fetchAllAdvancesForWorker(workerId) {
 export async function fetchAdvancesWithNames({ startDate, endDate, supervisorId } = {}) {
   let query = supabase
     .from('weekly_advances')
-    .select('id, worker_id, worker_table_id, supervisor_id, week_start, amount, payment_mode, advance_status, created_at')
+    .select('id, worker_id, worker_table_id, supervisor_id, week_start, amount, payment_mode, advance_status, approved_amount, partial_note, created_at')
     .order('created_at', { ascending: false })
   if (startDate) query = query.gte('created_at', `${startDate}T00:00:00`)
   if (endDate)   query = query.lte('created_at', `${endDate}T23:59:59.999`)
@@ -166,7 +166,7 @@ export async function fetchAdvancesWithNames({ startDate, endDate, supervisorId 
 async function fetchAdvanceRows(statuses) {
   const { data: rows, error } = await supabase
     .from('weekly_advances')
-    .select('id, worker_id, worker_table_id, supervisor_id, week_start, amount, payment_mode, advance_status, created_at')
+    .select('id, worker_id, worker_table_id, supervisor_id, week_start, amount, payment_mode, advance_status, approved_amount, partial_note, created_at')
     .in('advance_status', statuses)
     .order('created_at', { ascending: false })
   if (error) return { error, data: null }
@@ -256,6 +256,23 @@ export function rejectAdvance(advanceId, bossId) {
       advance_status: 'rejected',
       decided_by:     bossId,
       decided_at:     new Date().toISOString(),
+    })
+    .eq('id', advanceId)
+}
+
+/**
+ * Boss partially approves — records the reduced `approved_amount` and an
+ * optional note, and moves the row to status 'partial'.
+ */
+export function partialApproveAdvance(advanceId, bossId, approvedAmount, note) {
+  return supabase
+    .from('weekly_advances')
+    .update({
+      advance_status:  'partial',
+      approved_amount: Number(approvedAmount),
+      partial_note:    note || null,
+      decided_by:      bossId,
+      decided_at:      new Date().toISOString(),
     })
     .eq('id', advanceId)
 }

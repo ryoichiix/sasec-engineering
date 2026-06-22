@@ -8,7 +8,7 @@ import { fetchAdvancesWithNames } from '../lib/advances'
 const STATUS_BADGES = {
   approved:              { label: 'Approved',        className: 'bg-gray-900 text-white' },
   direct:                { label: 'Direct',          className: 'bg-gray-900 text-white' },
-  partial:               { label: 'Partial',         className: 'bg-gray-900 text-white' },
+  partial:               { label: 'Partial',         className: 'bg-indigo-50 text-indigo-700 border border-indigo-200' },
   rejected:              { label: 'Rejected',        className: 'bg-red-50 text-red-600 border border-red-200' },
   pending_site_incharge: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border border-amber-200' },
   pending_field_manager: { label: 'Pending SI',      className: 'bg-amber-50 text-amber-700 border border-amber-200' },
@@ -183,6 +183,14 @@ export default function AdvancesList({ scope, supervisorId, refreshTick = 0 }) {
                         <div className="flex-1 min-w-0">
                           <p className="font-semibold text-gray-900 text-sm truncate">{workerName}</p>
                           <p className="text-xs text-gray-400 mt-0.5 truncate">{meta}</p>
+                          {r.advance_status === 'partial' && r.approved_amount != null && (
+                            <p className="text-xs text-indigo-600 mt-0.5 font-medium">
+                              {inr(r.approved_amount)} of {inr(r.amount)} approved
+                            </p>
+                          )}
+                          {r.advance_status === 'partial' && r.partial_note && (
+                            <p className="text-xs text-gray-400 mt-0.5 truncate">"{r.partial_note}"</p>
+                          )}
                         </div>
 
                         {/* Amount + mode */}

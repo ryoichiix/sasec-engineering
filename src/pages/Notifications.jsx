@@ -42,7 +42,8 @@ function groupByDate(items) {
 }
 
 export default function Notifications() {
-  const { user, role } = useAuth()
+  const { user, role, profile } = useAuth()
+  const isFieldManager = profile?.field_manager === true
   const navigate = useNavigate()
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
@@ -81,7 +82,7 @@ export default function Notifications() {
         prev.map((item) => (item.id === n.id ? { ...item, is_read: true } : item))
       )
     }
-    navigate(getNotifPath(n, role))
+    navigate(getNotifPath(n, role, isFieldManager))
   }
 
   return (

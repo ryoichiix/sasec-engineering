@@ -121,8 +121,8 @@ export default function SupervisorWeightCalculator() {
     setExtractSummary(null)
     setProgressLog([])
     try {
-      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
-      if (!apiKey) throw new Error('AI extraction is not configured (missing VITE_ANTHROPIC_API_KEY). Enter rows manually.')
+      const apiKey = import.meta.env.VITE_GEMINI_API_KEY
+      if (!apiKey) throw new Error('Gemini API key not configured. Add VITE_GEMINI_API_KEY to .env.local')
 
       const extracted = await extractTableFromImage(
         imageFiles,

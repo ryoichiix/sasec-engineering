@@ -27,6 +27,7 @@ import BossWorkFeed from './pages/BossWorkFeed'
 import BossPayroll from './pages/BossPayroll'
 import BossDesignations from './pages/BossDesignations'
 import SupervisorTeam from './pages/SupervisorTeam'
+import Approvals from './pages/supervisor/Approvals'
 import BossAssignments from './pages/BossAssignments'
 import BossDevices from './pages/BossDevices'
 import BossAdvances from './pages/BossAdvances'
@@ -244,6 +245,14 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
                 <SupervisorAdvances />
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/supervisor/approvals"
+            element={
+              <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
+                <Approvals />
               </ProtectedRoute>
             }
           />

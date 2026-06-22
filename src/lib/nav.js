@@ -15,6 +15,7 @@ import {
   Wallet,
   Calculator,
   Scale,
+  CheckSquare,
 } from 'lucide-react'
 
 /**
@@ -41,6 +42,7 @@ export const NAV_LINKS = {
     { to: '/supervisor',            label: 'Dashboard',       icon: LayoutDashboard, end: true },
     { to: '/supervisor/attendance', label: 'Mark Attendance', icon: ClipboardCheck             },
     { to: '/supervisor/advances',   label: 'Advances',        icon: Wallet                     },
+    { to: '/supervisor/approvals',  label: 'Approvals',       icon: CheckSquare, fmOnly: true   },
     { to: '/supervisor/leave',      label: 'Leave Requests',  icon: CalendarOff                },
     { to: '/supervisor/team',       label: "Today's Team",    icon: Users                      },
     { to: '/supervisor/weight',     label: 'Weight Calculator', icon: Calculator               },

@@ -8,7 +8,8 @@ import { getNotifMeta, getNotifPath, cleanTitle, formatUiText } from '../lib/not
 const VISIBLE_LIMIT = 10
 
 export default function NotificationBell() {
-  const { user, role } = useAuth()
+  const { user, role, profile } = useAuth()
+  const isFieldManager = profile?.field_manager === true
   const navigate = useNavigate()
   const [notifications, setNotifications] = useState([])
   const [unread, setUnread]               = useState(0)
@@ -60,7 +61,7 @@ export default function NotificationBell() {
       setUnread((prev) => Math.max(0, prev - 1))
     }
     setOpen(false)
-    navigate(getNotifPath(n, role))
+    navigate(getNotifPath(n, role, isFieldManager))
   }
 
   const visible = notifications.slice(0, VISIBLE_LIMIT)

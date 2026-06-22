@@ -1,18 +1,16 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   ClipboardCheck, FileText, Users, FileCheck2,
   CheckCircle2, Circle, ChevronRight,
 } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
-import LeaveQueue from '../components/LeaveQueue'
-import OTRequestsFMContent from '../components/OTRequestsFMContent'
-import AdvanceRequestsFMContent from '../components/AdvanceRequestsFMContent'
 import { Skeleton } from '../components/Skeleton'
 import { useAuth } from '../contexts/auth-context'
 import { supabase } from '../lib/supabase'
 import { todayLocal } from '../lib/dates'
 import { fetchMyAssignmentsForDate } from '../lib/assignments'
+import { fetchPendingApprovalCounts } from '../lib/approvals'
 
 function greeting() {
   const h = new Date().getHours()
@@ -26,6 +24,7 @@ function todayPretty() {
 
 export default function SupervisorDashboard() {
   const { user, profile } = useAuth()
+  const navigate = useNavigate()
   const isFM = profile?.field_manager === true
   const today = todayLocal()
 
@@ -34,11 +33,16 @@ export default function SupervisorDashboard() {
   const [loadingTasks, setLoadingTasks] = useState(true)
   const [loadingTeam, setLoadingTeam] = useState(true)
 
-  // Site Incharge approval-queue pending counts (lifted from the child queues).
-  const [leaveCount, setLeaveCount]     = useState(0)
-  const [otCount, setOtCount]           = useState(0)
-  const [advanceCount, setAdvanceCount] = useState(0)
-  const totalPending = leaveCount + otCount + advanceCount
+  // Site Incharge approval-queue summary (full queues live on /supervisor/approvals).
+  const [pendingApprovals, setPendingApprovals] = useState(0)
+  useEffect(() => {
+    if (!isFM) return
+    let m = true
+    fetchPendingApprovalCounts().then(({ total }) => {
+      if (m) setPendingApprovals(total)
+    })
+    return () => { m = false }
+  }, [isFM])
 
   // ── Task completion status ─────────────────────────────
   useEffect(() => {
@@ -166,25 +170,24 @@ export default function SupervisorDashboard() {
         )}
       </div>
 
-      {/* Site Incharge approval queue — secondary, moved to bottom */}
+      {/* Site Incharge approval summary — full queues live on /supervisor/approvals */}
       {isFM && (
-        <div className="animate-fade-in-up border-t border-slate-200 pt-6">
-          {/* Page header */}
-          <div className="mb-6">
-            <div className="flex items-center gap-2 mb-1">
-              <span className="text-xs font-semibold bg-[#0F172A] text-white px-2.5 py-1 rounded-full">Site Incharge</span>
-              <span className="text-gray-300">·</span>
-              <span className="text-sm text-gray-500">Approval Queue</span>
+        <div
+          onClick={() => navigate('/supervisor/approvals')}
+          className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 cursor-pointer hover:shadow-md transition-shadow animate-fade-in-up"
+        >
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-1">Pending Approvals</p>
+              <p className="text-2xl font-bold text-gray-900">{pendingApprovals}</p>
+              <p className="text-sm text-gray-400 mt-1">items awaiting your review</p>
             </div>
-            <h1 className="text-2xl font-bold text-gray-900">Pending Reviews</h1>
-            <p className="text-sm text-gray-400 mt-1">
-              {totalPending} item{totalPending !== 1 ? 's' : ''} awaiting your approval
-            </p>
+            {pendingApprovals > 0 && (
+              <div className="w-12 h-12 bg-[#C0272D] rounded-full flex items-center justify-center">
+                <span className="text-white font-bold text-lg">{pendingApprovals}</span>
+              </div>
+            )}
           </div>
-
-          <LeaveQueue stage="field_manager" onCountChange={setLeaveCount} />
-          <OTRequestsFMContent onCountChange={setOtCount} />
-          <AdvanceRequestsFMContent onCountChange={setAdvanceCount} />
         </div>
       )}
     </DashboardShell>

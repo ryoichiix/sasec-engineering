@@ -4,15 +4,7 @@ import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead } from '../lib/notifications'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/dates'
-import { cleanTitle, formatUiText } from '../lib/notification-meta'
-
-// Map notification tab → the route + tab that makes sense to navigate to
-const TAB_ROUTES = {
-  leave:   '/boss/requests',   // BossRequests opens with Leave tab active
-  ot:      '/boss/requests',   // same page, OT tab (TODO: deep-link when needed)
-  advance: '/boss/payroll',
-  general: '/boss',
-}
+import { cleanTitle, formatUiText, getNotifPath } from '../lib/notification-meta'
 
 // ── Category definitions ───────────────────────────────────
 //
@@ -206,7 +198,7 @@ export default function BossNotifications() {
         <>
           <ul className="divide-y divide-slate-100 max-h-[480px] overflow-y-auto">
             {visibleItems.map((n) => {
-              const dest = TAB_ROUTES[activeTab] || '/boss'
+              const dest = getNotifPath(n, 'boss', false)
               return (
                 <li key={n.id}>
                   <Link

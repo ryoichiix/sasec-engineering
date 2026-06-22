@@ -1,8 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { NavLink } from 'react-router-dom'
 import { Menu, LogOut, X } from 'lucide-react'
 import { useAuth } from '../contexts/auth-context'
 import { NAV_LINKS } from '../lib/nav'
+import { fetchPendingApprovalCounts } from '../lib/approvals'
 import NotificationBell from './NotificationBell'
 import BottomNav from './BottomNav'
 
@@ -16,9 +17,19 @@ export default function DashboardShell({ title, children }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   const role = profile?.role ?? ''
-  const links = NAV_LINKS[role] ?? []
   const displayName = profile?.full_name ?? user?.email ?? ''
   const isFM = profile?.field_manager === true
+  const links = (NAV_LINKS[role] ?? []).filter((item) => !item.fmOnly || isFM)
+
+  const [pendingApprovals, setPendingApprovals] = useState(0)
+  useEffect(() => {
+    if (role !== 'supervisor' || !isFM) return
+    let isMounted = true
+    fetchPendingApprovalCounts().then(({ total }) => {
+      if (isMounted) setPendingApprovals(total)
+    })
+    return () => { isMounted = false }
+  }, [role, isFM])
 
   const roleBadge =
     role === 'boss'
@@ -80,6 +91,11 @@ export default function DashboardShell({ title, children }) {
               >
                 {Icon && <Icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.9} />}
                 <span className="truncate">{item.label}</span>
+                {item.fmOnly && pendingApprovals > 0 && (
+                  <span className="ml-auto h-5 min-w-[1.25rem] px-1 bg-[#C0272D] text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none flex-shrink-0">
+                    {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                  </span>
+                )}
               </NavLink>
             )
           })}

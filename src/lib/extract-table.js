@@ -1,23 +1,24 @@
 // ============================================================
-// Drawing-sheet table extraction via Claude vision (image only).
+// Drawing-sheet table extraction via Gemini vision (image only).
 //
 // The supervisor photographs or screenshots the fabrication
 // weight table and uploads a JPG/PNG/WebP. The image is sent to
-// Claude Vision in a single request; the returned rows are
+// Gemini 2.5 Pro in a single request; the returned rows are
 // de-duplicated, normalised, and handed to the editable grid.
 //
 // HEIC (iPhone) photos are rejected with a visible message —
-// the browser can't decode them and Claude won't accept them.
+// the browser can't decode them for the canvas-compression path.
 // Images over 5MB are downscaled/recompressed on a canvas first.
 //
-// Direct browser call; VITE_ANTHROPIC_API_KEY is bundled into
+// Direct browser call; VITE_GEMINI_API_KEY is bundled into
 // the client — treat as semi-public, rotate/scope accordingly.
 // ============================================================
 
+import { GoogleGenerativeAI } from '@google/generative-ai'
 import { normalizeItem } from './weight'
 
 /**
- * Build the Claude Vision prompt for one photo. When several photos of the
+ * Build the vision prompt for one photo. When several photos of the
  * same table are uploaded, each is sent separately with a "photo N of M"
  * preamble so the model only reads the section in front of it — the rows are
  * merged and de-duplicated afterwards.
@@ -250,7 +251,7 @@ async function compressImage(file, maxBytes) {
   })
 }
 
-/** Send one image to Claude Vision and return its raw parsed row array. */
+/** Send one image to Gemini Vision and return its raw parsed row array. */
 async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onProgress) {
   const photoLabel = photoCount > 1 ? `photo ${photoIndex + 1} of ${photoCount}` : 'image'
   onProgress?.(`Reading ${photoLabel}…`)
@@ -258,7 +259,7 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
   const fileType = (file.type || '').toLowerCase()
   const ext = (file.name || '').split('.').pop().toLowerCase()
 
-  // iPhone HEIC/HEIF — browser can't decode, Claude won't accept. Reject loudly.
+  // iPhone HEIC/HEIF — browser can't decode for the canvas-compression path. Reject loudly.
   const isHeic = ext === 'heic' || ext === 'heif' || fileType === 'image/heic' || fileType === 'image/heif'
   if (isHeic) {
     throw new Error(`Photo ${photoIndex + 1} is an iPhone HEIC photo, which isn't supported. Change your iPhone camera to "Most Compatible" (JPEG) under Settings → Camera → Formats, then retake it — or upload a screenshot instead.`)
@@ -269,7 +270,7 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
     throw new Error(`Photo ${photoIndex + 1} has an unsupported type (${file.type || ext}). Please use JPG, PNG, or WebP.`)
   }
 
-  // Claude Vision limit is 5MB per image.
+  // Keep images under 5MB before sending.
   const maxSize = 5 * 1024 * 1024
   let processed = file
   if (file.size > maxSize) {
@@ -289,41 +290,25 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
     mediaType = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg'
   }
 
-  onProgress?.(`Sending ${photoLabel} to Claude Vision…`)
+  onProgress?.(`Sending ${photoLabel} to Gemini…`)
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 16000,
-      messages: [{
-        role: 'user',
-        content: [
-          { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
-          { type: 'text', text: buildVisionPrompt(photoIndex, photoCount) },
-        ],
-      }],
-    }),
-  })
+  let text
+  try {
+    const genAI = new GoogleGenerativeAI(import.meta.env.VITE_GEMINI_API_KEY)
+    const model = genAI.getGenerativeModel({ model: 'gemini-2.5-pro' })
 
-  if (!response.ok) {
-    const errText = await response.text().catch(() => '')
-    let errMsg = `Claude API error on photo ${photoIndex + 1}`
-    try {
-      const errJson = JSON.parse(errText)
-      errMsg = errJson?.error?.message || errMsg
-    } catch { /* keep default */ }
-    throw new Error(errMsg)
+    const imageData = {
+      inlineData: {
+        data: base64,
+        mimeType: mediaType,
+      },
+    }
+
+    const result = await model.generateContent([imageData, buildVisionPrompt(photoIndex, photoCount)])
+    text = result.response.text()
+  } catch (e) {
+    throw new Error(`Gemini API error on photo ${photoIndex + 1}: ${e.message || e}`, { cause: e })
   }
-
-  const data = await response.json()
-  const text = data.content?.[0]?.text || ''
 
   onProgress?.(`Parsing ${photoLabel}…`)
 
@@ -333,7 +318,7 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
     return Array.isArray(parsed) ? parsed : []
   } catch (e) {
     console.error(`[extract-table] JSON parse failed for ${photoLabel}. Response was:`, text.slice(0, 500))
-    throw new Error(`Could not parse Claude's response for photo ${photoIndex + 1}. Please try uploading a clearer image.`, { cause: e })
+    throw new Error(`Could not parse Gemini's response for photo ${photoIndex + 1}. Please try uploading a clearer image.`, { cause: e })
   }
 }
 
@@ -341,13 +326,13 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
 
 /**
  * Extract fabrication-table line items from one OR several image files.
- * Each photo is sent to Claude Vision separately (so the supervisor can
+ * Each photo is sent to Gemini 2.5 Pro separately (so the supervisor can
  * photograph different sections of a large table); the rows are merged,
  * de-duplicated by sr_no, validated against the steel-plate formula, and
  * returned sorted by sr_no — ready for the editable grid.
  *
  * @param {File|File[]} files       One image, or an array of up to 3
- * @param {string}      apiKey      Anthropic API key
+ * @param {string}      apiKey      Unused — Gemini reads VITE_GEMINI_API_KEY directly
  * @param {Function}    onProgress  Optional — called with status strings
  * @returns {Promise<Array>}        Normalised, validated line items
  */
@@ -356,7 +341,7 @@ export async function extractTableFromImage(files, apiKey, onProgress) {
   if (fileArray.length === 0) throw new Error('No photos provided.')
   if (fileArray.length > 3) throw new Error('You can upload at most 3 photos at once.')
 
-  // One Claude Vision call per photo, sequentially.
+  // One Gemini Vision call per photo, sequentially.
   const allRawRows = []
   for (let i = 0; i < fileArray.length; i++) {
     const rows = await extractRowsFromOnePhoto(fileArray[i], apiKey, i, fileArray.length, onProgress)

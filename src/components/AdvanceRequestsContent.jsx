@@ -4,8 +4,10 @@ import {
   fetchPendingAdvanceRequests,
   approveAdvance,
   rejectAdvance,
+  partialApproveAdvance,
   paymentModeLabel,
 } from '../lib/advances'
+import { notifyUser, notifyFieldManagers } from '../lib/notifications'
 import { formatCurrency } from '../lib/payroll'
 import { formatDate } from '../lib/dates'
 
@@ -19,6 +21,11 @@ export default function AdvanceRequestsContent() {
   const [loading, setLoading] = useState(true)
   const [error, setError]     = useState(null)
   const [busy, setBusy]       = useState({})
+
+  // Partial-approval modal state
+  const [partialModal, setPartialModal]   = useState(null)
+  const [partialAmount, setPartialAmount] = useState('')
+  const [partialNote, setPartialNote]     = useState('')
 
   const applyResult = (data, err) => {
     if (err) { setError(err.message); setRows([]) }
@@ -54,12 +61,87 @@ export default function AdvanceRequestsContent() {
 
   const decideOne = async (id, action) => {
     if (!user?.id) return
+    const advance = rows.find((r) => r.id === id)
     setBusy((b) => ({ ...b, [id]: true }))
     const fn = action === 'approve' ? approveAdvance : rejectAdvance
     const { error: err } = await fn(id, user.id)
+    if (err) {
+      setBusy((b) => { const n = { ...b }; delete n[id]; return n })
+      setError(err.message)
+      return
+    }
+
+    // Notify the submitting supervisor + Site Incharges (RLS-safe RPCs).
+    if (advance) {
+      const title = action === 'approve' ? 'Advance Approved' : 'Advance Rejected'
+      const verb  = action === 'approve' ? 'approved' : 'rejected'
+      const type  = action === 'approve' ? 'advance_approved' : 'advance_rejected'
+      const msg = `Director ${verb} the ${formatCurrency(advance.amount)} `
+        + `advance for ${advance.worker_name || 'worker'}.`
+      if (advance.supervisor_id) {
+        await notifyUser({
+          userId: advance.supervisor_id,
+          title, message: msg, type, referenceId: id, referenceType: 'advance',
+        })
+      }
+      await notifyFieldManagers({ title, message: msg, type, referenceId: id, referenceType: 'advance' })
+    }
+
     setBusy((b) => { const n = { ...b }; delete n[id]; return n })
-    if (err) { setError(err.message); return }
     setRows((p) => p.filter((r) => r.id !== id))
+  }
+
+  const openPartial = (advance) => {
+    setPartialModal(advance)
+    setPartialAmount('')
+    setPartialNote('')
+  }
+
+  const closePartial = () => {
+    setPartialModal(null)
+    setPartialAmount('')
+    setPartialNote('')
+  }
+
+  const handlePartialApprove = async () => {
+    const advance = partialModal
+    if (!advance || !user?.id) return
+    const amt = Number(partialAmount)
+    if (!amt || amt <= 0 || amt >= Number(advance.amount)) return
+
+    setBusy((b) => ({ ...b, [advance.id]: true }))
+    const { error: err } = await partialApproveAdvance(advance.id, user.id, amt, partialNote)
+    if (err) {
+      setBusy((b) => { const n = { ...b }; delete n[advance.id]; return n })
+      setError(err.message)
+      return
+    }
+
+    // Notify the submitting supervisor + the Site Incharges via RLS-safe RPCs.
+    const msg = `Director approved ${formatCurrency(amt)} of ${formatCurrency(advance.amount)} `
+      + `advance for ${advance.worker_name || 'worker'}.`
+      + (partialNote ? ` Note: ${partialNote}` : '')
+    if (advance.supervisor_id) {
+      await notifyUser({
+        userId: advance.supervisor_id,
+        title: 'Advance Partially Approved',
+        message: msg,
+        type: 'advance_partial',
+        referenceId: advance.id,
+        referenceType: 'advance',
+      })
+    }
+    await notifyFieldManagers({
+      title: 'Advance Partially Approved',
+      message: msg,
+      type: 'advance_partial',
+      referenceId: advance.id,
+      referenceType: 'advance',
+    })
+
+    setBusy((b) => { const n = { ...b }; delete n[advance.id]; return n })
+    closePartial()
+    setRows((p) => p.filter((r) => r.id !== advance.id))
   }
 
   const totalAmount = rows.reduce((s, r) => s + (Number(r.amount) || 0), 0)
@@ -116,11 +198,15 @@ export default function AdvanceRequestsContent() {
                           {' · '}entered by {r.supervisor_name}
                         </p>
                       </div>
-                      <div className="flex items-center gap-2 flex-shrink-0">
+                      <div className="flex items-center gap-2 flex-shrink-0 flex-wrap">
                         {isBusy && <span className="text-xs text-[#94A3B8]">Saving…</span>}
                         <button onClick={() => decideOne(r.id, 'approve')} disabled={isBusy}
                           className="text-xs font-semibold px-3 py-1.5 rounded-md bg-[#10B981] hover:bg-[#059669] text-white disabled:opacity-60 min-h-[36px]">
                           Approve
+                        </button>
+                        <button onClick={() => openPartial(r)} disabled={isBusy}
+                          className="text-xs font-semibold px-3 py-1.5 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white disabled:opacity-60 min-h-[36px]">
+                          Partial
                         </button>
                         <button onClick={() => decideOne(r.id, 'reject')} disabled={isBusy}
                           className="text-xs font-semibold px-3 py-1.5 rounded-md border border-[#FECACA] text-[#B91C1C] hover:bg-[#FEF2F2] disabled:opacity-60 min-h-[36px]">
@@ -133,6 +219,58 @@ export default function AdvanceRequestsContent() {
               </ul>
             </div>
           ))}
+        </div>
+      )}
+
+      {/* Partial-approval modal */}
+      {partialModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-2xl w-full max-w-sm p-6">
+            <h3 className="font-bold text-gray-900 text-lg mb-1">Partial Approval</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Worker requested {formatCurrency(partialModal.amount)}. Enter the amount you will approve.
+            </p>
+
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1 block">
+              Approved Amount (₹)
+            </label>
+            <input
+              type="number"
+              max={partialModal.amount}
+              min={1}
+              value={partialAmount}
+              onChange={(e) => setPartialAmount(e.target.value)}
+              className="w-full border border-gray-200 rounded-xl px-4 py-3 text-lg font-bold text-gray-900 focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-3"
+              placeholder="0"
+            />
+
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1 block">
+              Note to Supervisor (optional)
+            </label>
+            <textarea
+              rows={2}
+              value={partialNote}
+              onChange={(e) => setPartialNote(e.target.value)}
+              placeholder="Reason for partial approval..."
+              className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 resize-none focus:outline-none focus:ring-2 focus:ring-indigo-500 mb-4"
+            />
+
+            <div className="flex gap-2">
+              <button
+                onClick={handlePartialApprove}
+                disabled={!partialAmount || Number(partialAmount) <= 0 || Number(partialAmount) >= Number(partialModal.amount)}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white font-semibold py-2.5 rounded-xl transition-colors"
+              >
+                Confirm Partial ({formatCurrency(Number(partialAmount || 0))})
+              </button>
+              <button
+                onClick={closePartial}
+                className="px-4 py-2.5 border border-gray-200 text-gray-600 font-semibold rounded-xl hover:bg-gray-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </>
