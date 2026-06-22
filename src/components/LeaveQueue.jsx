@@ -238,18 +238,18 @@ export default function LeaveQueue({ stage, onCountChange }) {
                   {d.error && <p className="text-xs text-red-600 mt-1">{d.error}</p>}
                 </div>
 
-                <div className="px-5 pb-4 flex gap-2 items-center">
+                <div className="flex items-center gap-2 px-5 pb-4">
                   <button
                     onClick={() => fmDecide(r, 'approved')}
                     disabled={d.busy}
-                    className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white text-sm font-semibold py-2.5 rounded-xl transition-colors disabled:opacity-60"
+                    className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-60"
                   >
-                    {d.busy ? 'Saving…' : 'Approve → send to Director'}
+                    {d.busy ? 'Saving…' : 'Approve → Director'}
                   </button>
                   <button
                     onClick={() => fmDecide(r, 'rejected')}
                     disabled={d.busy}
-                    className="px-4 py-2.5 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
+                    className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
                   >
                     Reject
                   </button>
