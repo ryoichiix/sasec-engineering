@@ -36,8 +36,12 @@ export async function fetchWeeklyAdvancesForWeek(weekStart, workerIds) {
     .in('worker_table_id', workerIds)
 }
 
-/** Create or update the advance for a worker in a given week. */
-export async function upsertWeeklyAdvance({
+/**
+ * Insert a new advance for a worker in a given week. Each advance is its
+ * own record — a worker can have multiple advances in the same week, so
+ * this is a plain insert, never an upsert keyed on (worker_id, week_start).
+ */
+export async function insertWeeklyAdvance({
   workerId,
   weekStart,
   amount,
@@ -46,17 +50,14 @@ export async function upsertWeeklyAdvance({
 }) {
   return supabase
     .from('weekly_advances')
-    .upsert(
-      {
-        worker_id:      workerId,   // matches the unique constraint (worker_id, week_start)
-        worker_table_id: workerId,  // FK to workers table
-        week_start:    weekStart,
-        amount:        Number(amount) || 0,
-        payment_mode:  paymentMode,
-        supervisor_id: supervisorId,
-      },
-      { onConflict: 'worker_id,week_start' }
-    )
+    .insert({
+      worker_id:       workerId,   // FK to workers table
+      worker_table_id: workerId,   // FK to workers table
+      week_start:      weekStart,
+      amount:          Number(amount) || 0,
+      payment_mode:    paymentMode,
+      supervisor_id:   supervisorId,
+    })
     .select()
     .single()
 }

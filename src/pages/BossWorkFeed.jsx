@@ -249,7 +249,7 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
               {updates.map((u, i) => (
                 <div key={i} className="flex items-start gap-3">
                   <span className="text-xs text-gray-400 w-10 flex-shrink-0 pt-0.5 font-mono">
-                    {new Date(u.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                    {new Date(u.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}
                   </span>
                   {!u.content && attsByUpdateId[u.id]?.length > 0
                     ? <span className="text-xs text-gray-500 italic flex items-center gap-1"><span>🎙</span> Voice message</span>
@@ -378,7 +378,7 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
             {updates.slice(0, 2).map((u, i) => (
               <div key={i} className="flex items-start gap-3">
                 <span className="text-xs text-gray-400 w-10 flex-shrink-0 pt-0.5 font-mono">
-                  {new Date(u.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                  {new Date(u.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}
                 </span>
                 {!u.content && attsByUpdateId[u.id]?.length > 0
                   ? <span className="text-xs text-gray-500 italic flex items-center gap-1"><span>🎙</span> Voice message</span>
@@ -543,10 +543,10 @@ function DetailDrawer({ detail, report, team, updates, attsByUpdateId, onClose }
                   <div key={i} className="flex items-start gap-3">
                     <div className="flex-shrink-0 text-right">
                       <span className="text-xs font-mono text-gray-400">
-                        {new Date(u.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })}
+                        {new Date(u.created_at).toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })}
                       </span>
                       <p className="text-[10px] text-gray-300">
-                        {new Date(u.created_at).toLocaleDateString('en-IN', { day: 'numeric', month: 'short' })}
+                        {new Date(u.created_at).toLocaleDateString('en-IN', { timeZone: 'Asia/Kolkata', day: 'numeric', month: 'short' })}
                       </p>
                     </div>
                     <div className="flex-1 bg-gray-50 rounded-xl px-3.5 py-2.5">

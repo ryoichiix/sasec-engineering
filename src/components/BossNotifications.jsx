@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead } from '../lib/notifications'
 import { supabase } from '../lib/supabase'
-import { formatDate } from '../lib/dates'
+import { toIST } from '../lib/dates'
 import { cleanTitle, formatUiText, getNotifPath } from '../lib/notification-meta'
 
 // ── Category definitions ───────────────────────────────────
@@ -224,7 +224,7 @@ export default function BossNotifications() {
                         <p className="text-sm text-[#475569]">{formatUiText(n.message)}</p>
                       )}
                       <p className="text-xs text-[#94A3B8] mt-0.5">
-                        {formatDate(n.created_at)}
+                        {toIST(n.created_at)}
                       </p>
                     </div>
                     <span className="self-center text-[#C0272D] opacity-0 group-hover:opacity-100 transition-opacity text-xs font-medium flex-shrink-0">

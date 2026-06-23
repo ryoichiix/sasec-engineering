@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { todayLocal, formatDate } from '../lib/dates'
+import { todayLocal, formatDate, toISTDateKey } from '../lib/dates'
 import { weekRange } from '../lib/payroll'
 import { fetchAdvancesWithNames } from '../lib/advances'
 
@@ -19,15 +19,18 @@ const PAGE_SIZE = 5 // date-groups shown per page
 
 const inr = (n) => `₹${(Number(n) || 0).toLocaleString('en-IN')}`
 
+// IST calendar day, not a raw UTC-string slice — a row created at 12:30 AM
+// IST is still 7:00 PM UTC the PREVIOUS day, so slicing the UTC string
+// would group it under the wrong date header.
 function dateKey(createdAt) {
-  return String(createdAt).slice(0, 10)
+  return toISTDateKey(createdAt)
 }
 
 function timeLabel(createdAt) {
   const d = new Date(createdAt)
   return Number.isNaN(d.getTime())
     ? ''
-    : d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit', hour12: true })
+    : d.toLocaleTimeString('en-IN', { timeZone: 'Asia/Kolkata', hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
 /**

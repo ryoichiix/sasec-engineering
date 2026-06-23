@@ -4,6 +4,7 @@ import { CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
 import { getNotifMeta, getNotifPath, cleanTitle, formatUiText } from '../lib/notification-meta'
+import { toIST } from '../lib/dates'
 
 const VISIBLE_LIMIT = 10
 
@@ -147,12 +148,7 @@ export default function NotificationBell() {
                           </p>
                         )}
                         <p className="text-[10px] text-slate-400 mt-1">
-                          {new Date(n.created_at).toLocaleString(undefined, {
-                            day:    'numeric',
-                            month:  'short',
-                            hour:   '2-digit',
-                            minute: '2-digit',
-                          })}
+                          {toIST(n.created_at)}
                         </p>
                       </div>
                     </button>

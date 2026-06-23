@@ -6,7 +6,7 @@ import { useAuth } from '../contexts/auth-context'
 import { todayLocal } from '../lib/dates'
 import { weekRange } from '../lib/payroll'
 import {
-  upsertWeeklyAdvance,
+  insertWeeklyAdvance,
   PAYMENT_MODES,
   ADVANCE_AUTO_THRESHOLD,
 } from '../lib/advances'
@@ -40,7 +40,7 @@ export default function SupervisorAdvances() {
     }
 
     setSubmitting(true)
-    const { data, error } = await upsertWeeklyAdvance({
+    const { data, error } = await insertWeeklyAdvance({
       workerId,
       weekStart:    week.start,
       amount:       amt,

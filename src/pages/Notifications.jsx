@@ -6,7 +6,7 @@ import EmptyState from '../components/EmptyState'
 import { useAuth } from '../contexts/auth-context'
 import { fetchAllNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
 import { getNotifMeta, getNotifPath, getNotifCategory, cleanTitle, formatUiText } from '../lib/notification-meta'
-import { todayLocal } from '../lib/dates'
+import { todayLocal, toIST } from '../lib/dates'
 
 const TABS = [
   { key: 'all',      label: 'All' },
@@ -167,13 +167,7 @@ export default function Notifications() {
                                 <p className="text-sm text-slate-500 mt-0.5">{formatUiText(n.message)}</p>
                               )}
                               <p className="text-xs text-slate-400 mt-1.5">
-                                {new Date(n.created_at).toLocaleString(undefined, {
-                                  day:    'numeric',
-                                  month:  'short',
-                                  year:   'numeric',
-                                  hour:   '2-digit',
-                                  minute: '2-digit',
-                                })}
+                                {toIST(n.created_at)}
                               </p>
                             </div>
                           </button>
