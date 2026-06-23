@@ -90,7 +90,8 @@ export default function SupervisorExpenses() {
   const filteredTotal = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
 
   // ── Submit form ────────────────────────────────────────────
-  const fileRef = useRef(null)
+  const receiptFileRef = useRef(null)
+  const receiptCameraRef = useRef(null)
   const [form, setForm] = useState({
     amount: '',
     category: 'Petrol',
@@ -129,6 +130,9 @@ export default function SupervisorExpenses() {
     }
     return next
   })
+
+  // VehicleCombobox hands back a raw id (not an event) — separate setter.
+  const setVehicleId = (id) => setForm((p) => ({ ...p, vehicleId: id }))
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0] ?? null
@@ -245,228 +249,260 @@ export default function SupervisorExpenses() {
       </div>
 
       {/* ── Submit form (div + onClick — no <form> tag) ──────── */}
-      <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-6">
-        <h3 className="text-sm font-semibold text-slate-900 mb-4">Record expense</h3>
-        <div className="space-y-4">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            {/* Amount */}
+      <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
+        <h2 className="text-base font-bold text-gray-900 mb-5">Record Expense</h2>
+
+        {/* Row 1: Amount + Category */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Amount (₹) *
+            </label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              placeholder="0.00"
+              value={form.amount}
+              onChange={setField('amount')}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Category *
+            </label>
+            <select
+              value={form.category}
+              onChange={setField('category')}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
+            >
+              {EXPENSE_CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {/* Row 2: Date + Receipt */}
+        <div className="grid grid-cols-2 gap-4 mb-4">
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Date
+            </label>
+            <input
+              type="date"
+              value={form.date}
+              max={today}
+              onChange={setField('date')}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+            />
+          </div>
+          <div>
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Receipt (optional)
+            </label>
+
+            {/* Hidden inputs */}
+            <input
+              ref={receiptFileRef}
+              type="file"
+              accept="image/*,application/pdf"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+            <input
+              ref={receiptCameraRef}
+              type="file"
+              accept="image/*"
+              capture="environment"
+              onChange={handleFileChange}
+              className="hidden"
+            />
+
+            {/* Two buttons side by side */}
+            <div className="flex gap-2">
+              <button
+                type="button"
+                onClick={() => receiptFileRef.current?.click()}
+                className="flex-1 flex items-center justify-center gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                </svg>
+                Upload file
+              </button>
+              <button
+                type="button"
+                onClick={() => receiptCameraRef.current?.click()}
+                className="flex-1 flex items-center justify-center gap-2 border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-500 hover:bg-gray-50 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 9a2 2 0 012-2h.93a2 2 0 001.664-.89l.812-1.22A2 2 0 0110.07 4h3.86a2 2 0 011.664.89l.812 1.22A2 2 0 0018.07 7H19a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V9z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 13a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+                Take photo
+              </button>
+            </div>
+
+            {/* Show selected file name */}
+            {receiptFile && (
+              <div className="flex items-center gap-2 mt-2 text-xs text-gray-500 bg-gray-50 rounded-lg px-3 py-2">
+                <span className="flex-1 truncate">{receiptFile.name}</span>
+                <button
+                  type="button"
+                  onClick={() => setReceiptFile(null)}
+                  className="text-gray-400 hover:text-red-500"
+                >
+                  ✕
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ── Dynamic, category-specific fields ─────────────── */}
+        {(form.category === 'Petrol' || form.category === 'Vehicle Repairs') && (
+          <div className="mb-4">
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Vehicle *
+            </label>
+            <VehicleCombobox vehicles={vehicles} value={form.vehicleId} onChange={setVehicleId} />
+            {vehicles.length === 0 && (
+              <p className="mt-1 text-[11px] text-gray-400">No vehicles available yet.</p>
+            )}
+          </div>
+        )}
+
+        {form.category === 'Petrol' && (
+          <div className="grid grid-cols-2 gap-4 mb-4">
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Amount (₹) <span className="text-rose-500">*</span>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+                Litres filled
               </label>
               <input
                 type="number"
                 inputMode="decimal"
-                min="0.01"
+                min="0"
                 step="0.01"
                 placeholder="0.00"
-                value={form.amount}
-                onChange={setField('amount')}
-                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                value={form.litres}
+                onChange={setField('litres')}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
               />
             </div>
-
-            {/* Category */}
             <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Category <span className="text-rose-500">*</span>
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+                Rate per litre (₹)
               </label>
-              <select
-                value={form.category}
-                onChange={setField('category')}
-                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand transition"
-              >
-                {EXPENSE_CATEGORIES.map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* Date */}
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">Date</label>
               <input
-                type="date"
-                value={form.date}
-                max={today}
-                onChange={setField('date')}
-                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                type="number"
+                inputMode="decimal"
+                min="0"
+                step="0.01"
+                placeholder="0.00"
+                value={form.rate}
+                onChange={setField('rate')}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
               />
             </div>
-
-            {/* Receipt */}
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Receipt photo <span className="text-slate-400">(optional)</span>
-              </label>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className="flex-1 text-left px-3 py-2.5 border border-slate-300 border-dashed rounded-lg text-sm text-slate-500 hover:bg-slate-50 transition truncate"
-                >
-                  {receiptFile ? receiptFile.name : '📷 Choose image or PDF…'}
-                </button>
-                {receiptFile && (
-                  <button
-                    type="button"
-                    onClick={() => setReceiptFile(null)}
-                    className="text-slate-400 hover:text-rose-600 text-lg leading-none"
-                  >
-                    ×
-                  </button>
-                )}
-              </div>
-              <input
-                ref={fileRef}
-                type="file"
-                accept="image/jpeg,image/png,image/webp,image/heic,application/pdf"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-            </div>
+            {form.litres && form.rate && (
+              <p className="col-span-2 text-[11px] text-gray-500">
+                Amount auto-filled: {form.litres} L × ₹{form.rate} ={' '}
+                <span className="font-semibold text-gray-700">
+                  {formatCurrency(Number(form.litres) * Number(form.rate) || 0)}
+                </span>
+              </p>
+            )}
           </div>
+        )}
 
-          {/* ── Dynamic, category-specific fields ─────────────── */}
-          {form.category === 'Petrol' && (
-            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
-              <VehicleSelect value={form.vehicleId} onChange={setField('vehicleId')} vehicles={vehicles} />
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Litres filled</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={form.litres}
-                    onChange={setField('litres')}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-600 mb-1">Rate per litre (₹)</label>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    min="0"
-                    step="0.01"
-                    placeholder="0.00"
-                    value={form.rate}
-                    onChange={setField('rate')}
-                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
-                  />
-                </div>
-              </div>
-              {form.litres && form.rate && (
-                <p className="text-[11px] text-slate-500">
-                  Amount auto-filled: {form.litres} L × ₹{form.rate} ={' '}
-                  <span className="font-semibold text-slate-700">
-                    {formatCurrency(Number(form.litres) * Number(form.rate) || 0)}
-                  </span>
-                </p>
-              )}
+        {form.category === 'Machinery Repairs' && (
+          <div className="mb-4">
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Machinery / Equipment
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. Welding Machine, Grinder, Generator…"
+              value={form.machinery}
+              onChange={setField('machinery')}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+            />
+          </div>
+        )}
+
+        {(form.category === 'Vehicle Repairs' || form.category === 'Machinery Repairs') && (
+          <div className="mb-4">
+            <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+              Repair description
+            </label>
+            <textarea
+              rows={2}
+              placeholder="Describe the repair…"
+              value={form.repair}
+              onChange={setField('repair')}
+              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+            />
+          </div>
+        )}
+
+        {/* Description — only for non-structured categories.
+            Required when "Other", optional otherwise. */}
+        {!isStructured && (
+          form.category === 'Other' ? (
+            <div className="mb-4">
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+                Describe the expense *
+              </label>
+              <input
+                type="text"
+                autoFocus
+                value={form.description}
+                onChange={setField('description')}
+                placeholder="What was this expense for?"
+                className="w-full border border-rose-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 bg-rose-50 placeholder-rose-300"
+              />
+              <p className="mt-1 text-[11px] text-rose-600">
+                Required — you must describe the expense when selecting "Other".
+              </p>
             </div>
-          )}
-
-          {form.category === 'Vehicle Repairs' && (
-            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
-              <VehicleSelect value={form.vehicleId} onChange={setField('vehicleId')} vehicles={vehicles} />
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Repair description</label>
-                <textarea
-                  rows={2}
-                  placeholder="Describe the repair…"
-                  value={form.repair}
-                  onChange={setField('repair')}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand transition"
-                />
-              </div>
+          ) : (
+            <div className="mb-4">
+              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
+                Description (optional)
+              </label>
+              <input
+                type="text"
+                value={form.description}
+                onChange={setField('description')}
+                placeholder="e.g. Site visit fuel — Plot 4"
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+              />
             </div>
-          )}
+          )
+        )}
 
-          {form.category === 'Machinery Repairs' && (
-            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Machinery / Equipment</label>
-                <input
-                  type="text"
-                  placeholder="e.g. Welding Machine, Grinder, Generator…"
-                  value={form.machinery}
-                  onChange={setField('machinery')}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">Repair description</label>
-                <textarea
-                  rows={2}
-                  placeholder="Describe the repair…"
-                  value={form.repair}
-                  onChange={setField('repair')}
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand transition"
-                />
-              </div>
-            </div>
-          )}
+        {submitError && (
+          <p className="mb-4 text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-xl px-3 py-2">
+            {submitError}
+          </p>
+        )}
+        {submitSuccess && (
+          <p className="mb-4 text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+            ✓ Expense recorded successfully.
+          </p>
+        )}
 
-          {/* Description — only for non-structured categories.
-              Required when "Other", optional otherwise. */}
-          {!isStructured && (
-            form.category === 'Other' ? (
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Describe the expense <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  autoFocus
-                  value={form.description}
-                  onChange={setField('description')}
-                  placeholder="What was this expense for?"
-                  className="w-full px-3 py-2.5 border border-rose-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 transition bg-rose-50 placeholder-rose-300"
-                />
-                <p className="mt-1 text-[11px] text-rose-600">
-                  Required — you must describe the expense when selecting "Other".
-                </p>
-              </div>
-            ) : (
-              <div>
-                <label className="block text-xs font-medium text-slate-600 mb-1">
-                  Description <span className="text-slate-400">(optional)</span>
-                </label>
-                <input
-                  type="text"
-                  value={form.description}
-                  onChange={setField('description')}
-                  placeholder="e.g. Site visit fuel — Plot 4"
-                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
-                />
-              </div>
-            )
-          )}
-
-          {submitError && (
-            <p className="text-sm text-rose-600 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
-              {submitError}
-            </p>
-          )}
-          {submitSuccess && (
-            <p className="text-sm text-emerald-700 bg-emerald-50 border border-emerald-200 rounded-lg px-3 py-2">
-              ✓ Expense recorded successfully.
-            </p>
-          )}
-
-          <button
-            type="button"
-            onClick={submit}
-            disabled={submitting}
-            className="bg-brand hover:bg-brand-hover disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition"
-          >
-            {submitting ? 'Saving…' : 'Save expense'}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={submit}
+          disabled={submitting}
+          className="w-full bg-[#C0272D] hover:bg-red-800 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors mt-2"
+        >
+          {submitting ? 'Saving…' : 'Save Expense'}
+        </button>
       </div>
 
       {/* ── Filter bar ───────────────────────────────────────── */}
@@ -591,26 +627,48 @@ export default function SupervisorExpenses() {
   )
 }
 
-// Shared vehicle dropdown for Petrol / Vehicle Repairs. Degrades to a
-// disabled-looking empty select when no vehicles are available.
-function VehicleSelect({ value, onChange, vehicles }) {
+// Searchable vehicle combobox for Petrol / Vehicle Repairs — filters by
+// vehicle number, type, or driver name as the user types. No new packages.
+function VehicleCombobox({ vehicles, value, onChange }) {
+  const [query, setQuery] = useState('')
+  const [open, setOpen] = useState(false)
+  const ref = useRef(null)
+
+  useEffect(() => {
+    const handler = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false) }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  const filtered = vehicles.filter((v) =>
+    `${v.vehicle_no} ${v.vehicle_type} ${v.driver_name}`.toLowerCase().includes(query.toLowerCase())
+  )
+
+  const selected = vehicles.find((v) => v.id === value)
+
   return (
-    <div>
-      <label className="block text-xs font-medium text-slate-600 mb-1">Vehicle</label>
-      <select
-        value={value}
-        onChange={onChange}
-        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand transition"
-      >
-        <option value="">Select vehicle…</option>
-        {vehicles.map((v) => (
-          <option key={v.id} value={v.id}>
-            {v.vehicle_no} — {v.vehicle_type}{v.driver_name ? ` (${v.driver_name})` : ''}
-          </option>
-        ))}
-      </select>
-      {vehicles.length === 0 && (
-        <p className="mt-1 text-[11px] text-slate-400">No vehicles available yet.</p>
+    <div ref={ref} className="relative">
+      <input
+        type="text"
+        value={query || (selected ? `${selected.vehicle_no} — ${selected.vehicle_type}` : '')}
+        onChange={(e) => { setQuery(e.target.value); onChange(''); setOpen(true) }}
+        onFocus={() => setOpen(true)}
+        placeholder="Search by vehicle number, type, or driver…"
+        className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
+      />
+      {open && filtered.length > 0 && (
+        <div className="absolute z-20 mt-1 w-full bg-white border border-gray-100 rounded-xl shadow-lg max-h-52 overflow-y-auto">
+          {filtered.map((v) => (
+            <div
+              key={v.id}
+              onMouseDown={() => { onChange(v.id); setQuery(''); setOpen(false) }}
+              className="px-4 py-3 hover:bg-red-50 cursor-pointer border-b border-gray-50 last:border-0"
+            >
+              <p className="text-sm font-semibold text-gray-900">{v.vehicle_no}</p>
+              <p className="text-xs text-gray-400">{v.vehicle_type} · {v.driver_name}</p>
+            </div>
+          ))}
+        </div>
       )}
     </div>
   )
