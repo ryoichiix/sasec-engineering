@@ -16,6 +16,7 @@ import {
   Calculator,
   Scale,
   CheckSquare,
+  Truck,
 } from 'lucide-react'
 
 /**
@@ -36,6 +37,7 @@ export const NAV_LINKS = {
     { to: '/boss/weight-reports', label: 'Weight Reports', icon: Scale                      },
     { to: '/boss/forms',          label: 'Forms',          icon: FileSignature              },
     { to: '/boss/expenses',       label: 'Expenses',       icon: Receipt                    },
+    { to: '/boss/vehicles',       label: 'Vehicles',       icon: Truck                      },
     { to: '/boss/devices',        label: 'Biometric',      icon: Fingerprint                },
   ],
   supervisor: [

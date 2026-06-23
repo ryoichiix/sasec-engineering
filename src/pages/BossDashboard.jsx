@@ -19,6 +19,7 @@ import { supabase } from '../lib/supabase'
 import { todayLocal } from '../lib/dates'
 import { monthRange, formatCurrency, computePayroll } from '../lib/payroll'
 import { fetchWeeklyAdvancesInPeriod } from '../lib/advances'
+import { checkVehicleExpiry } from '../lib/vehicles'
 
 const C = { brand: '#C0272D', success: '#10B981', warning: '#F59E0B', error: '#EF4444', gold: '#D97706', info: '#3B82F6' }
 
@@ -170,6 +171,12 @@ export default function BossDashboard() {
     })
     return () => { m = false }
   }, [month.start, month.end])
+
+  // ── Vehicle document-expiry notifications (once per day per login) ──
+  useEffect(() => {
+    if (!user?.id) return
+    checkVehicleExpiry(user.id)
+  }, [user?.id])
 
   const payrollPct = payroll && payroll.expected > 0 ? Math.min(100, Math.round((payroll.actual / payroll.expected) * 100)) : 0
 

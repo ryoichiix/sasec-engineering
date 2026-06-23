@@ -3,6 +3,7 @@ import DashboardShell from '../components/DashboardShell'
 import { useAuth } from '../contexts/auth-context'
 import { todayLocal } from '../lib/dates'
 import { formatCurrency } from '../lib/payroll'
+import { fetchVehicles } from '../lib/vehicles'
 import {
   EXPENSE_CATEGORIES,
   CATEGORY_COLORS,
@@ -10,7 +11,11 @@ import {
   insertExpense,
   uploadReceipt,
   getReceiptUrl,
+  formatExpenseDetail,
 } from '../lib/expenses'
+
+// Categories that capture structured detail instead of a free-text description.
+const STRUCTURED_CATEGORIES = ['Petrol', 'Vehicle Repairs', 'Machinery Repairs']
 
 // Calendar-month helpers
 function monthBounds(ref) {
@@ -34,11 +39,23 @@ export default function SupervisorExpenses() {
   const today = todayLocal()
   const [month, setMonth] = useState(() => monthBounds(today))
 
+  // ── Vehicles (for Petrol / Vehicle Repairs dropdowns) ───────
+  // Fails gracefully — empty list if the table doesn't exist yet.
+  const [vehicles, setVehicles] = useState([])
+  useEffect(() => {
+    fetchVehicles().then(setVehicles)
+  }, [])
+
   // ── History ────────────────────────────────────────────────
   const [expenses, setExpenses] = useState([])
   const [loadingList, setLoadingList] = useState(true)
   const [listError, setListError] = useState(null)
   const [receiptUrls, setReceiptUrls] = useState({}) // id -> url
+
+  // ── Filters ────────────────────────────────────────────────
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
+  const [filterCategory, setFilterCategory] = useState('')
 
   const loadExpenses = async () => {
     if (!user?.id) return
@@ -62,6 +79,16 @@ export default function SupervisorExpenses() {
 
   const monthlyTotal = expenses.reduce((s, e) => s + Number(e.amount), 0)
 
+  // Client-side filtering on the loaded month's rows.
+  const filteredExpenses = expenses.filter((e) => {
+    if (filterFrom && e.expense_date < filterFrom) return false
+    if (filterTo && e.expense_date > filterTo) return false
+    if (filterCategory && e.category !== filterCategory) return false
+    return true
+  })
+  const filtersActive = Boolean(filterFrom || filterTo || filterCategory)
+  const filteredTotal = filteredExpenses.reduce((s, e) => s + Number(e.amount), 0)
+
   // ── Submit form ────────────────────────────────────────────
   const fileRef = useRef(null)
   const [form, setForm] = useState({
@@ -69,18 +96,36 @@ export default function SupervisorExpenses() {
     category: 'Petrol',
     date: today,
     description: '',
+    vehicleId: '',
+    litres: '',
+    rate: '',
+    machinery: '',
+    repair: '',
   })
   const [receiptFile, setReceiptFile] = useState(null)
   const [submitting, setSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState(null)
   const [submitSuccess, setSubmitSuccess] = useState(false)
 
+  const isStructured = STRUCTURED_CATEGORIES.includes(form.category)
+
   const setField = (k) => (e) => setForm((p) => {
     const next = { ...p, [k]: e.target.value }
-    // Clear description when switching away from "Other" so
-    // the user isn't left with stale text in the optional field.
-    if (k === 'category' && p.category === 'Other' && e.target.value !== 'Other') {
-      next.description = ''
+    if (k === 'category') {
+      // Leaving "Other" clears its required description.
+      if (p.category === 'Other' && e.target.value !== 'Other') next.description = ''
+      // Structured fields are category-specific — reset on switch.
+      next.vehicleId = ''
+      next.litres = ''
+      next.rate = ''
+      next.machinery = ''
+      next.repair = ''
+    }
+    // Petrol convenience: amount = litres × rate.
+    if ((k === 'litres' || k === 'rate') && p.category === 'Petrol') {
+      const litres = parseFloat(k === 'litres' ? e.target.value : p.litres)
+      const rate   = parseFloat(k === 'rate'   ? e.target.value : p.rate)
+      if (litres > 0 && rate > 0) next.amount = (litres * rate).toFixed(2)
     }
     return next
   })
@@ -91,8 +136,33 @@ export default function SupervisorExpenses() {
     e.target.value = '' // allow re-selecting same file
   }
 
-  const submit = async (e) => {
-    e.preventDefault()
+  // Build the value stored in `description`: a JSON payload for structured
+  // categories, otherwise the plain free-text description.
+  const buildDescription = () => {
+    const vehicleNo = vehicles.find((v) => v.id === form.vehicleId)?.vehicle_no || null
+    if (form.category === 'Petrol') {
+      return JSON.stringify({
+        vehicle_no: vehicleNo,
+        litres: form.litres ? Number(form.litres) : null,
+        rate:   form.rate ? Number(form.rate) : null,
+      })
+    }
+    if (form.category === 'Vehicle Repairs') {
+      return JSON.stringify({
+        vehicle_no: vehicleNo,
+        repair: form.repair.trim() || null,
+      })
+    }
+    if (form.category === 'Machinery Repairs') {
+      return JSON.stringify({
+        machinery: form.machinery.trim() || null,
+        repair:    form.repair.trim() || null,
+      })
+    }
+    return form.description
+  }
+
+  const submit = async () => {
     const amt = parseFloat(form.amount)
     if (!amt || amt <= 0) { setSubmitError('Enter a valid amount.'); return }
     if (form.category === 'Other' && !form.description.trim()) {
@@ -121,14 +191,17 @@ export default function SupervisorExpenses() {
       amount:       amt,
       category:     form.category,
       date:         form.date,
-      description:  form.description,
+      description:  buildDescription(),
       receiptPath,
     })
 
     setSubmitting(false)
     if (error) { setSubmitError(error.message); return }
 
-    setForm({ amount: '', category: 'Petrol', date: today, description: '' })
+    setForm({
+      amount: '', category: 'Petrol', date: today, description: '',
+      vehicleId: '', litres: '', rate: '', machinery: '', repair: '',
+    })
     setReceiptFile(null)
     setSubmitSuccess(true)
     setTimeout(() => setSubmitSuccess(false), 3000)
@@ -171,10 +244,10 @@ export default function SupervisorExpenses() {
         </button>
       </div>
 
-      {/* ── Submit form ─────────────────────────────────────── */}
+      {/* ── Submit form (div + onClick — no <form> tag) ──────── */}
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-6">
         <h3 className="text-sm font-semibold text-slate-900 mb-4">Record expense</h3>
-        <form onSubmit={submit} className="space-y-4">
+        <div className="space-y-4">
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             {/* Amount */}
             <div>
@@ -186,7 +259,6 @@ export default function SupervisorExpenses() {
                 inputMode="decimal"
                 min="0.01"
                 step="0.01"
-                required
                 placeholder="0.00"
                 value={form.amount}
                 onChange={setField('amount')}
@@ -255,38 +327,124 @@ export default function SupervisorExpenses() {
             </div>
           </div>
 
-          {/* Description — required when "Other", optional otherwise */}
-          {form.category === 'Other' ? (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Describe the expense <span className="text-rose-500">*</span>
-              </label>
-              <input
-                type="text"
-                required
-                autoFocus
-                value={form.description}
-                onChange={setField('description')}
-                placeholder="What was this expense for?"
-                className="w-full px-3 py-2.5 border border-rose-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 transition bg-rose-50 placeholder-rose-300"
-              />
-              <p className="mt-1 text-[11px] text-rose-600">
-                Required — you must describe the expense when selecting "Other".
-              </p>
+          {/* ── Dynamic, category-specific fields ─────────────── */}
+          {form.category === 'Petrol' && (
+            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
+              <VehicleSelect value={form.vehicleId} onChange={setField('vehicleId')} vehicles={vehicles} />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Litres filled</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={form.litres}
+                    onChange={setField('litres')}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-slate-600 mb-1">Rate per litre (₹)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={form.rate}
+                    onChange={setField('rate')}
+                    className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                  />
+                </div>
+              </div>
+              {form.litres && form.rate && (
+                <p className="text-[11px] text-slate-500">
+                  Amount auto-filled: {form.litres} L × ₹{form.rate} ={' '}
+                  <span className="font-semibold text-slate-700">
+                    {formatCurrency(Number(form.litres) * Number(form.rate) || 0)}
+                  </span>
+                </p>
+              )}
             </div>
-          ) : (
-            <div>
-              <label className="block text-xs font-medium text-slate-600 mb-1">
-                Description <span className="text-slate-400">(optional)</span>
-              </label>
-              <input
-                type="text"
-                value={form.description}
-                onChange={setField('description')}
-                placeholder="e.g. Site visit fuel — Plot 4"
-                className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
-              />
+          )}
+
+          {form.category === 'Vehicle Repairs' && (
+            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
+              <VehicleSelect value={form.vehicleId} onChange={setField('vehicleId')} vehicles={vehicles} />
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Repair description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Describe the repair…"
+                  value={form.repair}
+                  onChange={setField('repair')}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand transition"
+                />
+              </div>
             </div>
+          )}
+
+          {form.category === 'Machinery Repairs' && (
+            <div className="space-y-4 rounded-lg bg-slate-50 border border-slate-200 p-4">
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Machinery / Equipment</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Welding Machine, Grinder, Generator…"
+                  value={form.machinery}
+                  onChange={setField('machinery')}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">Repair description</label>
+                <textarea
+                  rows={2}
+                  placeholder="Describe the repair…"
+                  value={form.repair}
+                  onChange={setField('repair')}
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm resize-none focus:outline-none focus:ring-2 focus:ring-brand transition"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Description — only for non-structured categories.
+              Required when "Other", optional otherwise. */}
+          {!isStructured && (
+            form.category === 'Other' ? (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Describe the expense <span className="text-rose-500">*</span>
+                </label>
+                <input
+                  type="text"
+                  autoFocus
+                  value={form.description}
+                  onChange={setField('description')}
+                  placeholder="What was this expense for?"
+                  className="w-full px-3 py-2.5 border border-rose-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-rose-400 transition bg-rose-50 placeholder-rose-300"
+                />
+                <p className="mt-1 text-[11px] text-rose-600">
+                  Required — you must describe the expense when selecting "Other".
+                </p>
+              </div>
+            ) : (
+              <div>
+                <label className="block text-xs font-medium text-slate-600 mb-1">
+                  Description <span className="text-slate-400">(optional)</span>
+                </label>
+                <input
+                  type="text"
+                  value={form.description}
+                  onChange={setField('description')}
+                  placeholder="e.g. Site visit fuel — Plot 4"
+                  className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand transition"
+                />
+              </div>
+            )
           )}
 
           {submitError && (
@@ -301,13 +459,68 @@ export default function SupervisorExpenses() {
           )}
 
           <button
-            type="submit"
+            type="button"
+            onClick={submit}
             disabled={submitting}
             className="bg-brand hover:bg-brand-hover disabled:opacity-60 text-white text-sm font-semibold px-5 py-2.5 rounded-lg transition"
           >
             {submitting ? 'Saving…' : 'Save expense'}
           </button>
-        </form>
+        </div>
+      </div>
+
+      {/* ── Filter bar ───────────────────────────────────────── */}
+      <div className="flex items-center gap-3 mb-5 flex-wrap">
+        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+          <span className="text-xs text-slate-400">From</span>
+          <input
+            type="date"
+            value={filterFrom}
+            onChange={(e) => setFilterFrom(e.target.value)}
+            className="text-sm text-slate-700 outline-none bg-transparent"
+          />
+        </div>
+        <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2">
+          <span className="text-xs text-slate-400">To</span>
+          <input
+            type="date"
+            value={filterTo}
+            onChange={(e) => setFilterTo(e.target.value)}
+            className="text-sm text-slate-700 outline-none bg-transparent"
+          />
+        </div>
+
+        <select
+          value={filterCategory}
+          onChange={(e) => setFilterCategory(e.target.value)}
+          className="bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 outline-none"
+        >
+          <option value="">All categories</option>
+          {EXPENSE_CATEGORIES.map((c) => (
+            <option key={c} value={c}>{c}</option>
+          ))}
+        </select>
+
+        <button
+          onClick={() => {
+            const now = new Date()
+            const start = new Date(now.getFullYear(), now.getMonth(), 1)
+            setFilterFrom(start.toISOString().split('T')[0])
+            setFilterTo(now.toISOString().split('T')[0])
+          }}
+          className="px-4 py-2 bg-slate-900 text-white text-sm font-medium rounded-xl hover:bg-slate-700 transition-colors"
+        >
+          This month
+        </button>
+
+        {filtersActive && (
+          <button
+            onClick={() => { setFilterFrom(''); setFilterTo(''); setFilterCategory('') }}
+            className="text-xs text-slate-400 hover:text-slate-600"
+          >
+            Clear filters
+          </button>
+        )}
       </div>
 
       {/* ── Expense history ──────────────────────────────────── */}
@@ -317,7 +530,8 @@ export default function SupervisorExpenses() {
             My expenses — {month.label}
           </h3>
           <span className="text-xs text-slate-400">
-            {loadingList ? '' : `${expenses.length} record${expenses.length === 1 ? '' : 's'}`}
+            {loadingList ? '' : `${filteredExpenses.length} record${filteredExpenses.length === 1 ? '' : 's'}`}
+            {!loadingList && filtersActive && ` · ${formatCurrency(filteredTotal)}`}
           </span>
         </div>
 
@@ -325,49 +539,79 @@ export default function SupervisorExpenses() {
           <div className="px-5 py-8 text-sm text-slate-500">Loading…</div>
         ) : listError ? (
           <div className="px-5 py-6 text-sm text-rose-600">{listError}</div>
-        ) : expenses.length === 0 ? (
+        ) : filteredExpenses.length === 0 ? (
           <div className="px-5 py-10 text-sm text-slate-500 text-center">
-            No expenses for {month.label}. Submit one above.
+            {filtersActive
+              ? 'No expenses match the current filters.'
+              : `No expenses for ${month.label}. Submit one above.`}
           </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {expenses.map((e) => (
-              <li key={e.id} className="px-5 py-4 flex items-start gap-3">
-                {/* Category pill */}
-                <span
-                  className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ring-inset mt-0.5 flex-shrink-0 ${CATEGORY_COLORS[e.category] || CATEGORY_COLORS.Other}`}
-                >
-                  {e.category}
-                </span>
+            {filteredExpenses.map((e) => {
+              const detail = formatExpenseDetail(e.description)
+              return (
+                <li key={e.id} className="px-5 py-4 flex items-start gap-3">
+                  {/* Category pill */}
+                  <span
+                    className={`inline-flex items-center text-[11px] font-semibold px-2 py-0.5 rounded-full ring-1 ring-inset mt-0.5 flex-shrink-0 ${CATEGORY_COLORS[e.category] || CATEGORY_COLORS.Other}`}
+                  >
+                    {e.category}
+                  </span>
 
-                {/* Details */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-semibold text-slate-900">
-                      {formatCurrency(Number(e.amount))}
-                    </p>
-                    <p className="text-xs text-slate-400 flex-shrink-0">{e.expense_date}</p>
+                  {/* Details */}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between gap-2">
+                      <p className="text-sm font-semibold text-slate-900">
+                        {formatCurrency(Number(e.amount))}
+                      </p>
+                      <p className="text-xs text-slate-400 flex-shrink-0">{e.expense_date}</p>
+                    </div>
+                    {detail && (
+                      <p className="text-xs text-slate-600 mt-0.5 truncate">{detail}</p>
+                    )}
+                    {/* Receipt thumbnail */}
+                    {receiptUrls[e.id] && (
+                      <a
+                        href={receiptUrls[e.id]}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="mt-1.5 inline-flex items-center gap-1 text-xs text-brand hover:underline"
+                      >
+                        📎 View receipt
+                      </a>
+                    )}
                   </div>
-                  {e.description && (
-                    <p className="text-xs text-slate-600 mt-0.5 truncate">{e.description}</p>
-                  )}
-                  {/* Receipt thumbnail */}
-                  {receiptUrls[e.id] && (
-                    <a
-                      href={receiptUrls[e.id]}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="mt-1.5 inline-flex items-center gap-1 text-xs text-brand hover:underline"
-                    >
-                      📎 View receipt
-                    </a>
-                  )}
-                </div>
-              </li>
-            ))}
+                </li>
+              )
+            })}
           </ul>
         )}
       </div>
     </DashboardShell>
+  )
+}
+
+// Shared vehicle dropdown for Petrol / Vehicle Repairs. Degrades to a
+// disabled-looking empty select when no vehicles are available.
+function VehicleSelect({ value, onChange, vehicles }) {
+  return (
+    <div>
+      <label className="block text-xs font-medium text-slate-600 mb-1">Vehicle</label>
+      <select
+        value={value}
+        onChange={onChange}
+        className="w-full px-3 py-2.5 border border-slate-300 rounded-lg text-sm bg-white focus:outline-none focus:ring-2 focus:ring-brand transition"
+      >
+        <option value="">Select vehicle…</option>
+        {vehicles.map((v) => (
+          <option key={v.id} value={v.id}>
+            {v.vehicle_no} — {v.vehicle_type}{v.driver_name ? ` (${v.driver_name})` : ''}
+          </option>
+        ))}
+      </select>
+      {vehicles.length === 0 && (
+        <p className="mt-1 text-[11px] text-slate-400">No vehicles available yet.</p>
+      )}
+    </div>
   )
 }

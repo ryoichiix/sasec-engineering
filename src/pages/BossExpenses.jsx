@@ -7,6 +7,7 @@ import {
   CATEGORY_COLORS,
   fetchAllExpenses,
   getReceiptUrl,
+  formatExpenseDetail,
 } from '../lib/expenses'
 
 // Calendar-month helpers (duplicated to avoid cross-file dep on non-lib code)
@@ -219,7 +220,7 @@ export default function BossExpenses() {
                       {formatCurrency(Number(e.amount))}
                     </td>
                     <td className="px-5 py-3 text-slate-600 max-w-xs truncate">
-                      {e.description || <span className="text-slate-400">—</span>}
+                      {formatExpenseDetail(e.description) || <span className="text-slate-400">—</span>}
                     </td>
                     <td className="px-5 py-3">
                       {receiptUrls[e.id] ? (
