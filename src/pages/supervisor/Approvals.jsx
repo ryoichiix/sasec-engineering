@@ -33,14 +33,14 @@ export default function Approvals() {
 
   return (
     <DashboardShell title="Approvals">
-      <div className="mb-6">
+      <div className="mb-5">
         <div className="flex items-center gap-2 mb-1">
           <span className="text-xs font-semibold bg-[#0F172A] text-white px-2.5 py-1 rounded-full">Site Incharge</span>
           <span className="text-gray-300">·</span>
-          <span className="text-sm text-gray-500">Approval Queue</span>
+          <span className="text-xs text-gray-400">Approval Queue</span>
         </div>
-        <h1 className="text-2xl font-bold text-gray-900">Pending Reviews</h1>
-        <p className="text-sm text-gray-400 mt-1">
+        <h1 className="text-xl font-bold text-gray-900">Pending Reviews</h1>
+        <p className="text-xs text-gray-400 mt-0.5">
           {totalPending} item{totalPending !== 1 ? 's' : ''} awaiting your approval
         </p>
       </div>

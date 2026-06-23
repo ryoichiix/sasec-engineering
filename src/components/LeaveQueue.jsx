@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { formatDate } from '../lib/dates'
 import LeaveStatusPill from './LeaveStatusPill'
-import QueueSectionHeader, { QueueEmptyState } from './QueueSectionHeader'
+import { QueueEmptyState } from './QueueSectionHeader'
 // Notifications handled exclusively by DB trigger — no client-side calls needed
 import {
   fetchAttachmentsByLeaveRequestId,
@@ -186,8 +186,6 @@ export default function LeaveQueue({ stage, onCountChange }) {
   if (isFieldManager) {
     return (
       <div>
-        <QueueSectionHeader title="Leave Requests" count={loading ? 0 : rows.length} />
-
         {loading ? (
           <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 text-sm text-gray-400">
             Loading…
@@ -202,56 +200,53 @@ export default function LeaveQueue({ stage, onCountChange }) {
             const audioUrl = voiceUrls[r.id]
             const name = r.applicant_name || 'Unknown supervisor'
             return (
-              <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden mb-3 hover:shadow-md transition-shadow">
-                <div className="px-5 pt-4 pb-3 flex items-start gap-4">
-                  <div className="w-10 h-10 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
-                    {name.charAt(0).toUpperCase()}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="font-semibold text-gray-900">{name}</span>
-                      <span className="text-xs text-gray-400">{dateRange(r.start_date, r.end_date)}</span>
+              <div key={r.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-3 hover:shadow-md transition-shadow">
+                <div className="flex items-start justify-between gap-4 mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
+                      {name.charAt(0).toUpperCase()}
                     </div>
-                    <p className="text-sm text-gray-600 mt-1">{r.reason}</p>
+                    <div>
+                      <p className="font-semibold text-gray-900 text-sm">{name}</p>
+                      <p className="text-xs text-gray-400 mt-0.5">{dateRange(r.start_date, r.end_date)}</p>
+                    </div>
                   </div>
                   <span className="text-xs font-semibold px-2.5 py-1 rounded-full border flex-shrink-0 bg-blue-50 text-blue-700 border-blue-200">
                     Leave
                   </span>
                 </div>
 
+                {r.reason && <p className="text-sm text-gray-600 mb-3">{r.reason}</p>}
+
                 {audioUrl && (
-                  <div className="px-5 pb-3">
-                    <audio controls src={audioUrl} className="w-full h-8" preload="metadata" />
-                  </div>
+                  <audio controls src={audioUrl} className="w-full h-8 mb-3" preload="metadata" />
                 )}
 
-                <div className="px-5 pb-3">
-                  <textarea
-                    placeholder="Add a note (optional)..."
-                    rows={2}
-                    value={d.note ?? ''}
-                    onChange={(e) =>
-                      setDraft((p) => ({ ...p, [r.id]: { ...(p[r.id] || {}), note: e.target.value } }))
-                    }
-                    className="w-full text-sm border border-gray-200 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-gray-300 text-gray-700 placeholder-gray-300"
-                  />
-                  {d.error && <p className="text-xs text-red-600 mt-1">{d.error}</p>}
-                </div>
+                <textarea
+                  placeholder="Add a note (optional)..."
+                  rows={2}
+                  value={d.note ?? ''}
+                  onChange={(e) =>
+                    setDraft((p) => ({ ...p, [r.id]: { ...(p[r.id] || {}), note: e.target.value } }))
+                  }
+                  className="w-full text-sm border border-gray-100 bg-gray-50 rounded-xl px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-gray-200 text-gray-700 placeholder-gray-300 mb-3"
+                />
+                {d.error && <p className="text-xs text-red-600 mb-3">{d.error}</p>}
 
-                <div className="flex items-center gap-2 px-5 pb-4">
-                  <button
-                    onClick={() => fmDecide(r, 'approved')}
-                    disabled={d.busy}
-                    className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white text-sm font-semibold py-2 px-4 rounded-xl transition-colors disabled:opacity-60"
-                  >
-                    {d.busy ? 'Saving…' : 'Approve → Director'}
-                  </button>
+                <div className="flex items-center justify-end gap-2">
                   <button
                     onClick={() => fmDecide(r, 'rejected')}
                     disabled={d.busy}
-                    className="px-4 py-2 border border-red-200 text-red-600 hover:bg-red-50 text-sm font-semibold rounded-xl transition-colors disabled:opacity-60"
+                    className="px-4 py-2 text-sm font-semibold text-red-600 border border-red-200 rounded-xl hover:bg-red-50 transition-colors disabled:opacity-60"
                   >
                     Reject
+                  </button>
+                  <button
+                    onClick={() => fmDecide(r, 'approved')}
+                    disabled={d.busy}
+                    className="px-5 py-2 text-sm font-semibold bg-[#0F172A] text-white rounded-xl hover:bg-gray-800 transition-colors disabled:opacity-60"
+                  >
+                    {d.busy ? 'Saving…' : 'Approve → Director'}
                   </button>
                 </div>
               </div>
