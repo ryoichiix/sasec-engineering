@@ -28,6 +28,7 @@ import BossPayroll from './pages/BossPayroll'
 import BossDesignations from './pages/BossDesignations'
 import SupervisorTeam from './pages/SupervisorTeam'
 import Approvals from './pages/supervisor/Approvals'
+import SiteInchargeWorkFeed from './pages/supervisor/SiteInchargeWorkFeed'
 import BossAssignments from './pages/BossAssignments'
 import BossDevices from './pages/BossDevices'
 import BossAdvances from './pages/BossAdvances'
@@ -332,6 +333,14 @@ export default function App() {
                 <Suspense fallback={<PageFallback />}>
                   <SupervisorWeightCalculator />
                 </Suspense>
+              </ProtectedRoute>
+            }
+          />
+          <Route
+            path="/supervisor/work-feed"
+            element={
+              <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
+                <SiteInchargeWorkFeed />
               </ProtectedRoute>
             }
           />

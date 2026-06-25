@@ -24,8 +24,24 @@ const PROJECT_OPTIONS = [
 ]
 const LOCATION_OPTIONS = ['BF#3', 'BF#4', 'BF#5', 'COKE#1', 'MRP', 'SINTER PLANT #3']
 const TASK_SUGGESTIONS = [
-  'Erection of columns', 'Welding of Base Plates', 'Fabrication',
-  'Painting', 'Inspection', 'Grouting',
+  'Erection of columns',
+  'Welding of Base Plates',
+  'Fabrication',
+  'Dismantling',
+  'Welding',
+  'Shifting',
+  'Scrap Shifting',
+  'Loading',
+  'Painting',
+  'Inspection',
+  'Grouting',
+  'Punch Points',
+  'Attending Punch Points',
+]
+const OT_TIMES = [
+  '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM',
+  '10:00 PM', '11:00 PM', '12:00 AM', '1:00 AM', '2:00 AM',
+  '3:00 AM', '4:00 AM', '5:00 AM', '6:00 AM', '7:00 AM', '8:00 AM',
 ]
 
 /**
@@ -61,6 +77,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
   // Section 3 — Equipment
   const [crane, setCrane] = useState('')
   const [hydra, setHydra] = useState('')
+  const [cherryPicker, setCherryPicker] = useState('')
   const [trawler, setTrawler] = useState('')
   const [trawlerNotRequired, setTrawlerNotRequired] = useState(false)
   // Section 4 — Tasks
@@ -86,6 +103,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
         setOtTo(data.ot_to ?? '')
         setCrane(data.equipment?.crane ?? '')
         setHydra(data.equipment?.hydra ?? '')
+        setCherryPicker(data.equipment?.cherry_picker ?? '')
         setTrawler(data.equipment?.trawler ?? '')
         setTrawlerNotRequired(!!data.equipment?.trawler_not_required)
         const t = Array.isArray(data.tasks) ? data.tasks : []
@@ -114,7 +132,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
   const save = async () => {
     const nextErrors = {}
     if (!projectDescription.trim()) nextErrors.project = 'Project description is required.'
-    if (cleanTasks.length === 0) nextErrors.tasks = 'Add at least one task.'
+    if (cleanTasks.length === 0) nextErrors.tasks = '⚠️ Please select at least one task from the list above, or add one manually.'
     setErrors(nextErrors)
     if (Object.keys(nextErrors).length) return
 
@@ -131,6 +149,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
       equipment: {
         crane: crane.trim(),
         hydra: hydra.trim(),
+        cherry_picker: cherryPicker.trim(),
         trawler: trawlerNotRequired ? '' : trawler.trim(),
         trawler_not_required: trawlerNotRequired,
       },
@@ -160,6 +179,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
     const equipmentRows = [
       ['Crane', crane],
       ['Hydra', hydra],
+      ['Cherry Picker', cherryPicker],
       ['Trawler', trawlerNotRequired ? 'Not Required' : trawler],
     ].filter(([, v]) => v)
 
@@ -187,7 +207,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
             {overtime && (
               <div className="flex justify-between text-sm gap-4">
                 <span className="text-amber-600">OT timing</span>
-                <span className="font-medium text-amber-700 text-right">{to12hr(otFrom) || '—'} – {to12hr(otTo) || '—'}</span>
+                <span className="font-medium text-amber-700 text-right">{otFrom || '—'} – {otTo || '—'}</span>
               </div>
             )}
           </div>
@@ -314,26 +334,8 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
                 <div className="bg-amber-50 border border-amber-200 text-amber-800 text-sm rounded-lg p-3">
                   OT requires prior Director approval. Food &amp; consumables must be planned. Crane/Hydra/Trawler bookings needed.
                 </div>
-                <div className="flex items-center gap-3">
-                  <div className="flex-1">
-                    <span className="block text-xs text-gray-500 mb-1">OT From</span>
-                    <input
-                      type="time"
-                      value={otFrom}
-                      onChange={(e) => setOtFrom(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <span className="block text-xs text-gray-500 mb-1">OT To</span>
-                    <input
-                      type="time"
-                      value={otTo}
-                      onChange={(e) => setOtTo(e.target.value)}
-                      className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                    />
-                  </div>
-                </div>
+                <TimeChipPicker label="OT From" value={otFrom} onChange={setOtFrom} />
+                <TimeChipPicker label="OT To" value={otTo} onChange={setOtTo} />
               </div>
             )}
           </div>
@@ -346,6 +348,7 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
         <div className="space-y-4">
           <EquipmentRow label="Crane" value={crane} onChange={setCrane} placeholder="e.g. ZOOMLION 80TONS CRANE" />
           <EquipmentRow label="Hydra" value={hydra} onChange={setHydra} placeholder="e.g. F-15 - KA35NP1234" />
+          <EquipmentRow label="Cherry Picker" value={cherryPicker} onChange={setCherryPicker} placeholder="e.g. Model / ID number" />
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <span className="text-sm font-medium text-gray-700 w-full sm:w-28 flex-shrink-0">Trawler</span>
             <div className="flex-1 w-full">
@@ -492,6 +495,31 @@ function WorkmenSection({ team, teamLoading }) {
           ))}
         </ol>
       )}
+    </div>
+  )
+}
+
+function TimeChipPicker({ label, value, onChange }) {
+  return (
+    <div>
+      <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {OT_TIMES.map((time) => (
+          <button
+            key={time}
+            type="button"
+            onClick={() => onChange(time === value ? '' : time)}
+            className={`px-3 py-1.5 rounded-full text-xs font-semibold transition-all ${
+              value === time
+                ? 'bg-[#C0272D] text-white'
+                : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+            }`}
+          >
+            {time}
+          </button>
+        ))}
+      </div>
+      {value && <p className="text-xs text-gray-400 mt-1.5">Selected: {value}</p>}
     </div>
   )
 }

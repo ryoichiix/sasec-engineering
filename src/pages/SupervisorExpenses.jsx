@@ -13,9 +13,12 @@ import {
   getReceiptUrl,
   formatExpenseDetail,
 } from '../lib/expenses'
+import { insertFuelPurchase, insertFuelAllocations, fetchFuelBalance } from '../lib/fuel'
 
 // Categories that capture structured detail instead of a free-text description.
-const STRUCTURED_CATEGORIES = ['Petrol', 'Vehicle Repairs', 'Machinery Repairs']
+const STRUCTURED_CATEGORIES = ['Vehicle Repairs', 'Machinery Repairs']
+// Fuel categories use the dedicated Fuel Manager (purchase + allocation) below.
+const FUEL_CATEGORIES = ['Diesel', 'Petrol']
 
 // Calendar-month helpers
 function monthBounds(ref) {
@@ -45,6 +48,27 @@ export default function SupervisorExpenses() {
   useEffect(() => {
     fetchVehicles().then(setVehicles)
   }, [])
+
+  // ── Fuel manager (Diesel / Petrol) ──────────────────────────
+  const [fuelPurchaseLitres, setFuelPurchaseLitres] = useState('')
+  const [fuelPricePerLitre, setFuelPricePerLitre] = useState('')
+  const [fuelAllocations, setFuelAllocations] = useState([{ vehicle_id: '', litres: '' }])
+  const [fuelBalance, setFuelBalance] = useState(null)
+
+  const addAllocationRow = () =>
+    setFuelAllocations((prev) => [...prev, { vehicle_id: '', litres: '' }])
+  const removeAllocation = (idx) =>
+    setFuelAllocations((prev) => prev.filter((_, i) => i !== idx))
+  const updateAllocation = (idx, field, val) =>
+    setFuelAllocations((prev) => prev.map((a, i) => (i === idx ? { ...a, [field]: val } : a)))
+  const resetFuel = () => {
+    setFuelPurchaseLitres('')
+    setFuelPricePerLitre('')
+    setFuelAllocations([{ vehicle_id: '', litres: '' }])
+  }
+
+  const loadFuelBalance = () => fetchFuelBalance().then(setFuelBalance)
+  useEffect(() => { loadFuelBalance() }, [])
 
   // ── History ────────────────────────────────────────────────
   const [expenses, setExpenses] = useState([])
@@ -98,8 +122,6 @@ export default function SupervisorExpenses() {
     date: today,
     description: '',
     vehicleId: '',
-    litres: '',
-    rate: '',
     machinery: '',
     repair: '',
   })
@@ -109,6 +131,7 @@ export default function SupervisorExpenses() {
   const [submitSuccess, setSubmitSuccess] = useState(false)
 
   const isStructured = STRUCTURED_CATEGORIES.includes(form.category)
+  const isFuel = FUEL_CATEGORIES.includes(form.category)
 
   const setField = (k) => (e) => setForm((p) => {
     const next = { ...p, [k]: e.target.value }
@@ -117,22 +140,21 @@ export default function SupervisorExpenses() {
       if (p.category === 'Other' && e.target.value !== 'Other') next.description = ''
       // Structured fields are category-specific — reset on switch.
       next.vehicleId = ''
-      next.litres = ''
-      next.rate = ''
       next.machinery = ''
       next.repair = ''
-    }
-    // Petrol convenience: amount = litres × rate.
-    if ((k === 'litres' || k === 'rate') && p.category === 'Petrol') {
-      const litres = parseFloat(k === 'litres' ? e.target.value : p.litres)
-      const rate   = parseFloat(k === 'rate'   ? e.target.value : p.rate)
-      if (litres > 0 && rate > 0) next.amount = (litres * rate).toFixed(2)
     }
     return next
   })
 
+  // Category change also resets the (separately-held) Fuel Manager state.
+  const onCategoryChange = (e) => { setField('category')(e); resetFuel() }
+
   // VehicleCombobox hands back a raw id (not an event) — separate setter.
   const setVehicleId = (id) => setForm((p) => ({ ...p, vehicleId: id }))
+
+  // Derived fuel figures (recomputed each render from the inputs above).
+  const fuelTotalAmount = (Number(fuelPurchaseLitres) || 0) * (Number(fuelPricePerLitre) || 0)
+  const fuelAllocated = fuelAllocations.reduce((sum, a) => sum + (Number(a.litres) || 0), 0)
 
   const handleFileChange = (e) => {
     const file = e.target.files?.[0] ?? null
@@ -143,14 +165,15 @@ export default function SupervisorExpenses() {
   // Build the value stored in `description`: a JSON payload for structured
   // categories, otherwise the plain free-text description.
   const buildDescription = () => {
-    const vehicleNo = vehicles.find((v) => v.id === form.vehicleId)?.vehicle_no || null
-    if (form.category === 'Petrol') {
+    if (isFuel) {
+      // Fuel detail lives in the fuel_* tables; store a summary in the
+      // expense row so the history line still reads "X L @ ₹Y/L".
       return JSON.stringify({
-        vehicle_no: vehicleNo,
-        litres: form.litres ? Number(form.litres) : null,
-        rate:   form.rate ? Number(form.rate) : null,
+        litres: fuelPurchaseLitres ? Number(fuelPurchaseLitres) : null,
+        rate:   fuelPricePerLitre ? Number(fuelPricePerLitre) : null,
       })
     }
+    const vehicleNo = vehicles.find((v) => v.id === form.vehicleId)?.vehicle_no || null
     if (form.category === 'Vehicle Repairs') {
       return JSON.stringify({
         vehicle_no: vehicleNo,
@@ -167,11 +190,21 @@ export default function SupervisorExpenses() {
   }
 
   const submit = async () => {
-    const amt = parseFloat(form.amount)
-    if (!amt || amt <= 0) { setSubmitError('Enter a valid amount.'); return }
-    if (form.category === 'Other' && !form.description.trim()) {
-      setSubmitError('Please describe the expense when selecting "Other".')
-      return
+    // Amount: entered directly, or derived from litres × rate for fuel.
+    let amt
+    if (isFuel) {
+      const litres = parseFloat(fuelPurchaseLitres)
+      const price  = parseFloat(fuelPricePerLitre)
+      if (!litres || litres <= 0) { setSubmitError('Enter total litres purchased.'); return }
+      if (!price  || price  <= 0) { setSubmitError('Enter the price per litre.'); return }
+      amt = litres * price
+    } else {
+      amt = parseFloat(form.amount)
+      if (!amt || amt <= 0) { setSubmitError('Enter a valid amount.'); return }
+      if (form.category === 'Other' && !form.description.trim()) {
+        setSubmitError('Please describe the expense when selecting "Other".')
+        return
+      }
     }
 
     setSubmitting(true)
@@ -199,13 +232,49 @@ export default function SupervisorExpenses() {
       receiptPath,
     })
 
+    if (error) { setSubmitting(false); setSubmitError(error.message); return }
+
+    // Fuel side-effect: mirror the purchase + allocations into the fuel ledger.
+    if (isFuel) {
+      const { data: purchase, error: pErr } = await insertFuelPurchase({
+        date:          form.date,
+        totalLitres:   fuelPurchaseLitres,
+        pricePerLitre: fuelPricePerLitre,
+        supervisorId:  user.id,
+      })
+      if (pErr) {
+        setSubmitting(false)
+        setSubmitError('Expense saved, but fuel purchase failed: ' + pErr.message)
+        return
+      }
+      const allocs = fuelAllocations
+        .filter((a) => a.vehicle_id && a.litres)
+        .map((a) => ({
+          purchase_id:      purchase.id,
+          date:             form.date,
+          vehicle_id:       a.vehicle_id,
+          vehicle_no:       vehicles.find((v) => v.id === a.vehicle_id)?.vehicle_no || null,
+          litres_allocated: Number(a.litres),
+          supervisor_id:    user.id,
+        }))
+      if (allocs.length > 0) {
+        const { error: aErr } = await insertFuelAllocations(allocs)
+        if (aErr) {
+          setSubmitting(false)
+          setSubmitError('Purchase saved, but allocation failed: ' + aErr.message)
+          return
+        }
+      }
+      loadFuelBalance()
+    }
+
     setSubmitting(false)
-    if (error) { setSubmitError(error.message); return }
 
     setForm({
       amount: '', category: 'Petrol', date: today, description: '',
-      vehicleId: '', litres: '', rate: '', machinery: '', repair: '',
+      vehicleId: '', machinery: '', repair: '',
     })
+    resetFuel()
     setReceiptFile(null)
     setSubmitSuccess(true)
     setTimeout(() => setSubmitSuccess(false), 3000)
@@ -248,6 +317,29 @@ export default function SupervisorExpenses() {
         </button>
       </div>
 
+      {/* ── Fuel balance at site (running, all-time) ─────────── */}
+      {fuelBalance && (
+        <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">⛽ Fuel Balance at Site</p>
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Total purchased</p>
+              <p className="text-lg font-bold text-gray-900">{fuelBalance.totalPurchased.toFixed(0)} L</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Total allocated</p>
+              <p className="text-lg font-bold text-orange-600">{fuelBalance.totalAllocated.toFixed(0)} L</p>
+            </div>
+            <div>
+              <p className="text-xs text-gray-400 mb-0.5">Available now</p>
+              <p className={`text-lg font-bold ${fuelBalance.balance > 50 ? 'text-green-600' : 'text-red-600'}`}>
+                {fuelBalance.balance.toFixed(0)} L
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Submit form (div + onClick — no <form> tag) ──────── */}
       <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6 mb-6">
         <h2 className="text-base font-bold text-gray-900 mb-5">Record Expense</h2>
@@ -258,16 +350,24 @@ export default function SupervisorExpenses() {
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
               Amount (₹) *
             </label>
-            <input
-              type="number"
-              inputMode="decimal"
-              min="0.01"
-              step="0.01"
-              placeholder="0.00"
-              value={form.amount}
-              onChange={setField('amount')}
-              className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
-            />
+            {isFuel ? (
+              <div className="w-full border border-gray-200 bg-gray-50 rounded-xl px-3 py-2.5 text-sm">
+                {fuelTotalAmount > 0
+                  ? <span className="font-semibold text-gray-800">{formatCurrency(fuelTotalAmount)}</span>
+                  : <span className="text-gray-400">Auto — litres × rate</span>}
+              </div>
+            ) : (
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                placeholder="0.00"
+                value={form.amount}
+                onChange={setField('amount')}
+                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+              />
+            )}
           </div>
           <div>
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
@@ -275,7 +375,7 @@ export default function SupervisorExpenses() {
             </label>
             <select
               value={form.category}
-              onChange={setField('category')}
+              onChange={onCategoryChange}
               className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
             >
               {EXPENSE_CATEGORIES.map((c) => (
@@ -363,7 +463,7 @@ export default function SupervisorExpenses() {
         </div>
 
         {/* ── Dynamic, category-specific fields ─────────────── */}
-        {(form.category === 'Petrol' || form.category === 'Vehicle Repairs') && (
+        {form.category === 'Vehicle Repairs' && (
           <div className="mb-4">
             <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
               Vehicle *
@@ -375,46 +475,104 @@ export default function SupervisorExpenses() {
           </div>
         )}
 
-        {form.category === 'Petrol' && (
-          <div className="grid grid-cols-2 gap-4 mb-4">
-            <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
-                Litres filled
-              </label>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={form.litres}
-                onChange={setField('litres')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
-              />
+        {/* ── Fuel Manager: bulk purchase + per-vehicle allocation ── */}
+        {isFuel && (
+          <div className="space-y-4 mb-4">
+            {/* Purchase section */}
+            <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
+              <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">Today's Purchase</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Total litres purchased</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="0"
+                    value={fuelPurchaseLitres}
+                    onChange={(e) => setFuelPurchaseLitres(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Price per litre (₹)</label>
+                  <input
+                    type="number"
+                    inputMode="decimal"
+                    min="0"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={fuelPricePerLitre}
+                    onChange={(e) => setFuelPricePerLitre(e.target.value)}
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-400"
+                  />
+                </div>
+              </div>
             </div>
+
+            {/* Allocation section */}
             <div>
-              <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">
-                Rate per litre (₹)
-              </label>
-              <input
-                type="number"
-                inputMode="decimal"
-                min="0"
-                step="0.01"
-                placeholder="0.00"
-                value={form.rate}
-                onChange={setField('rate')}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
-              />
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Allocate to vehicles</p>
+                <button
+                  type="button"
+                  onClick={addAllocationRow}
+                  className="text-xs text-[#C0272D] font-semibold hover:text-red-800"
+                >
+                  + Add vehicle
+                </button>
+              </div>
+              {fuelAllocations.map((alloc, idx) => (
+                <div key={idx} className="flex items-center gap-2 mb-2">
+                  <div className="flex-1">
+                    <VehicleCombobox
+                      vehicles={vehicles}
+                      value={alloc.vehicle_id}
+                      onChange={(val) => updateAllocation(idx, 'vehicle_id', val)}
+                    />
+                  </div>
+                  <div className="w-24">
+                    <input
+                      type="number"
+                      inputMode="decimal"
+                      min="0"
+                      step="0.01"
+                      placeholder="Litres"
+                      value={alloc.litres}
+                      onChange={(e) => updateAllocation(idx, 'litres', e.target.value)}
+                      className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+                    />
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => removeAllocation(idx)}
+                    disabled={fuelAllocations.length === 1}
+                    className="text-gray-300 hover:text-red-500 disabled:opacity-40 disabled:hover:text-gray-300 flex-shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+
+              {/* Balance summary for today's purchase */}
+              {fuelPurchaseLitres && (
+                <div className="mt-3 bg-gray-50 rounded-xl p-3 border border-gray-100">
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Purchased today</span>
+                    <span className="font-semibold">{Number(fuelPurchaseLitres)} L</span>
+                  </div>
+                  <div className="flex justify-between text-xs text-gray-500 mb-1">
+                    <span>Allocated</span>
+                    <span className="font-semibold text-orange-600">{fuelAllocated} L</span>
+                  </div>
+                  <div className="flex justify-between text-xs font-bold border-t border-gray-200 pt-1 mt-1">
+                    <span>Unallocated today</span>
+                    <span className="text-green-600">{Number(fuelPurchaseLitres) - fuelAllocated} L</span>
+                  </div>
+                </div>
+              )}
             </div>
-            {form.litres && form.rate && (
-              <p className="col-span-2 text-[11px] text-gray-500">
-                Amount auto-filled: {form.litres} L × ₹{form.rate} ={' '}
-                <span className="font-semibold text-gray-700">
-                  {formatCurrency(Number(form.litres) * Number(form.rate) || 0)}
-                </span>
-              </p>
-            )}
           </div>
         )}
 
@@ -448,9 +606,9 @@ export default function SupervisorExpenses() {
           </div>
         )}
 
-        {/* Description — only for non-structured categories.
+        {/* Description — only for non-structured, non-fuel categories.
             Required when "Other", optional otherwise. */}
-        {!isStructured && (
+        {!isStructured && !isFuel && (
           form.category === 'Other' ? (
             <div className="mb-4">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">

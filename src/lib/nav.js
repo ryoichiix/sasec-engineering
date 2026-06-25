@@ -49,6 +49,7 @@ export const NAV_LINKS = {
     { to: '/supervisor/team',       label: "Today's Team",    icon: Users                      },
     { to: '/supervisor/weight',     label: 'Weight Calculator', icon: Calculator               },
     { to: '/supervisor/work-plan',  label: 'Work Plan',       icon: FileText                   },
+    { to: '/supervisor/work-feed',  label: 'Work Feed',       icon: FileText, fmOnly: true     },
     { to: '/supervisor/forms',      label: 'Forms',           icon: FileSignature              },
     { to: '/supervisor/expenses',   label: 'Expenses',        icon: Receipt                    },
   ],

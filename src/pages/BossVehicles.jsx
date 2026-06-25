@@ -103,14 +103,14 @@ export default function BossVehicles() {
             description="Once vehicles are added to the database they'll appear here with document-expiry status."
           />
         ) : (
-          <div className="overflow-x-auto">
+          <div className="overflow-x-auto overflow-y-auto max-h-[calc(100vh-200px)]">
             <table className="w-full text-sm min-w-[1100px]">
-              <thead className="bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500">
+              <thead className="sticky top-0 z-10 bg-slate-50 text-left text-xs font-medium uppercase tracking-wider text-slate-500 shadow-sm">
                 <tr>
-                  <th className="px-4 py-3">Vehicle</th>
-                  <th className="px-4 py-3">Driver</th>
+                  <th className="px-4 py-3 bg-slate-50 whitespace-nowrap">Vehicle</th>
+                  <th className="px-4 py-3 bg-slate-50 whitespace-nowrap">Driver</th>
                   {VEHICLE_DOC_FIELDS.map((doc) => (
-                    <th key={doc.key} className="px-4 py-3">{doc.label}</th>
+                    <th key={doc.key} className="px-4 py-3 bg-slate-50 whitespace-nowrap">{doc.label}</th>
                   ))}
                 </tr>
               </thead>

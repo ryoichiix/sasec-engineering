@@ -116,9 +116,11 @@ export function getNotifPath(n, role, isFieldManager = false) {
     return '/supervisor/advances'
   }
 
-  // No notification of this type is created anywhere in the app today, but
-  // /boss/work-feed exists and is the obvious destination if one is added.
-  if (type.startsWith('work_plan')) return isBoss ? '/boss/work-feed' : '/supervisor/work-plan'
+  if (type.startsWith('work_plan')) {
+    if (isBoss) return '/boss/work-feed'
+    if (isFieldManager) return '/supervisor/work-feed'
+    return '/supervisor/work-plan'
+  }
 
   return isBoss ? '/boss' : '/supervisor'
 }
