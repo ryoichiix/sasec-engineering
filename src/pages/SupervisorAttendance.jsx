@@ -4,6 +4,7 @@ import AttendanceModeBanner from '../components/AttendanceModeBanner'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/auth-context'
 import { STATUS_LIST } from '../lib/attendance'
+import { isDirector, workerDesignationName } from '../lib/workers'
 import { todayLocal, formatDate } from '../lib/dates'
 
 export default function SupervisorAttendance() {
@@ -12,6 +13,11 @@ export default function SupervisorAttendance() {
   const [workers, setWorkers] = useState([])
   const [workersLoading, setWorkersLoading] = useState(true)
   const [workersError, setWorkersError] = useState(null)
+
+  // Search + filters
+  const [searchQuery, setSearchQuery] = useState('')
+  const [filterWageType, setFilterWageType] = useState('')
+  const [filterDesignation, setFilterDesignation] = useState('')
 
   // Map of worker_id -> { status, ot_hours, saving, savingOt, savedAt, otSavedAt, error }
   const [rows, setRows] = useState({})
@@ -23,7 +29,7 @@ export default function SupervisorAttendance() {
     let isMounted = true
     supabase
       .from('workers')
-      .select('id, full_name')
+      .select('id, full_name, wage_type, designation_id, designation_name, designations(name)')
       .order('full_name')
       .then(({ data, error }) => {
         if (!isMounted) return
@@ -72,6 +78,30 @@ export default function SupervisorAttendance() {
   const markedCount = useMemo(
     () => workers.filter((w) => rows[w.id]?.status).length,
     [workers, rows]
+  )
+
+  // Unique designation names for the filter dropdown
+  const designations = useMemo(
+    () =>
+      [...new Set(workers.map(workerDesignationName).filter(Boolean))].sort(),
+    [workers]
+  )
+
+  // Apply search + wage-type + designation filters
+  const filteredWorkers = useMemo(
+    () =>
+      workers.filter((w) => {
+        if (
+          searchQuery &&
+          !w.full_name?.toLowerCase().includes(searchQuery.toLowerCase())
+        )
+          return false
+        if (filterWageType && w.wage_type !== filterWageType) return false
+        if (filterDesignation && workerDesignationName(w) !== filterDesignation)
+          return false
+        return true
+      }),
+    [workers, searchQuery, filterWageType, filterDesignation]
   )
 
   // Mark attendance status (clears OT if marking absent)
@@ -196,6 +226,60 @@ export default function SupervisorAttendance() {
           </div>
         </div>
 
+        {!workersLoading && !workersError && workers.length > 0 && (
+          <div className="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-3 items-center">
+            {/* Search */}
+            <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-md px-3 py-2 flex-1 min-w-48">
+              <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+              </svg>
+              <input
+                type="text"
+                placeholder="Search worker name…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="flex-1 text-sm outline-none text-slate-700 placeholder-slate-300 bg-transparent"
+              />
+              {searchQuery && (
+                <button onClick={() => setSearchQuery('')} className="text-slate-300 hover:text-slate-500 text-xs">✕</button>
+              )}
+            </div>
+
+            {/* Wage type filter */}
+            <select
+              value={filterWageType}
+              onChange={(e) => setFilterWageType(e.target.value)}
+              className="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-600 outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="">All wage types</option>
+              <option value="daily_rate">Daily wage</option>
+              <option value="monthly_fixed">Monthly wage</option>
+            </select>
+
+            {/* Designation filter */}
+            <select
+              value={filterDesignation}
+              onChange={(e) => setFilterDesignation(e.target.value)}
+              className="bg-white border border-slate-300 rounded-md px-3 py-2 text-sm text-slate-600 outline-none focus:ring-2 focus:ring-brand"
+            >
+              <option value="">All designations</option>
+              {designations.map((d) => (
+                <option key={d} value={d}>{d}</option>
+              ))}
+            </select>
+
+            {/* Clear filters */}
+            {(searchQuery || filterWageType || filterDesignation) && (
+              <button
+                onClick={() => { setSearchQuery(''); setFilterWageType(''); setFilterDesignation('') }}
+                className="text-xs text-slate-400 hover:text-slate-600 px-2"
+              >
+                Clear
+              </button>
+            )}
+          </div>
+        )}
+
         {workersLoading ? (
           <div className="px-6 py-10 text-sm text-slate-500">Loading workers…</div>
         ) : workersError ? (
@@ -204,10 +288,15 @@ export default function SupervisorAttendance() {
           <div className="px-6 py-10 text-sm text-slate-500">
             No workers found. Ask your Director to add workers to the system.
           </div>
+        ) : filteredWorkers.length === 0 ? (
+          <div className="px-6 py-10 text-sm text-slate-500">
+            No workers match the current search or filters.
+          </div>
         ) : (
           <ul className="divide-y divide-slate-100">
-            {workers.map((w) => {
+            {filteredWorkers.map((w) => {
               const entry = rows[w.id] || {}
+              const director = isDirector(w)
               const canHaveOt =
                 entry.status === 'present' || entry.status === 'half_day'
 
@@ -229,6 +318,12 @@ export default function SupervisorAttendance() {
                   </div>
 
                   <div className="flex items-center gap-3 flex-wrap">
+                    {director ? (
+                      <span className="px-3 py-1 text-xs font-bold rounded-md bg-sky-100 text-sky-800 ring-1 ring-inset ring-sky-200">
+                        OD
+                      </span>
+                    ) : (
+                    <>
                     {/* Status buttons */}
                     <div className="flex items-center gap-1.5">
                       {STATUS_LIST.map((s) => {
@@ -309,6 +404,8 @@ export default function SupervisorAttendance() {
                           </span>
                         )}
                       </div>
+                    )}
+                    </>
                     )}
 
                   </div>

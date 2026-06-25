@@ -2,9 +2,10 @@ export const STATUS = {
   PRESENT: 'present',
   ABSENT: 'absent',
   HALF_DAY: 'half_day',
+  ON_DUTY: 'on_duty',
 }
 
-// Display order: P → H → A
+// Display order: P → H → A → OD
 export const STATUS_LIST = [
   {
     value: STATUS.PRESENT,
@@ -23,6 +24,12 @@ export const STATUS_LIST = [
     label: 'Absent',
     short: 'A',
     pill: 'bg-rose-100 text-rose-800 ring-rose-200',
+  },
+  {
+    value: STATUS.ON_DUTY,
+    label: 'On Duty',
+    short: 'OD',
+    pill: 'bg-sky-100 text-sky-800 ring-sky-200',
   },
 ]
 

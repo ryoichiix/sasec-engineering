@@ -159,7 +159,8 @@ export function computePayroll({
   let half = 0
   let absent = 0
   for (const status of Object.values(attendanceByDate || {})) {
-    if (status === 'present') present += 1
+    // On Duty is a paid full working day — counted alongside present.
+    if (status === 'present' || status === 'on_duty') present += 1
     else if (status === 'half_day') half += 1
     else if (status === 'absent') absent += 1
   }

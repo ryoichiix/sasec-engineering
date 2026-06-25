@@ -10,6 +10,7 @@ import {
   releaseWorker,
   updateAssignmentTask,
 } from '../lib/assignments'
+import { isDirector } from '../lib/workers'
 import { todayLocal, formatDate } from '../lib/dates'
 
 export default function SupervisorTeam() {
@@ -124,7 +125,10 @@ export default function SupervisorTeam() {
   )
 
   const availablePool = useMemo(() => {
-    const free = workers.filter((w) => !assignmentByWorker.has(w.id))
+    // Directors never enter the worker pool.
+    const free = workers.filter(
+      (w) => !assignmentByWorker.has(w.id) && !isDirector(w)
+    )
     if (!filterDesignation) return free
     return free.filter((w) => w.designation_id === filterDesignation)
   }, [workers, assignmentByWorker, filterDesignation])
