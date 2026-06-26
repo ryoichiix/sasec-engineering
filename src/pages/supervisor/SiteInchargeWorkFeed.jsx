@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { Navigate } from 'react-router-dom'
 import DashboardShell from '../../components/DashboardShell'
 import AttachmentList from '../../components/AttachmentList'
+import BatchTeamList from '../../components/BatchTeamList'
 import {
   fetchAllUpdatesRange,
   fetchAllEveningReportsRange,
@@ -9,6 +10,8 @@ import {
 } from '../../lib/work-updates'
 import { fetchSiteReportsRange } from '../../lib/work-plans'
 import { fetchAssignmentsRange } from '../../lib/assignments'
+import { fetchBatchesRange } from '../../lib/batches'
+import { fetchCollaborationsRange, buildCollabMap } from '../../lib/collaborations'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatDateTime } from '../../lib/dates'
 import { useAuth } from '../../contexts/auth-context'
@@ -59,6 +62,8 @@ function UpdatesFeed() {
   const [supervisorMeta, setSupervisorMeta] = useState({}) // id -> { name, role }
   const [plansByKey, setPlansByKey] = useState({})         // `${date}|${supId}` -> report
   const [teamsByKey, setTeamsByKey] = useState({})         // `${date}|${supId}` -> [{ id, name, designation }]
+  const [batchesByKey, setBatchesByKey] = useState({})     // `${date}|${supId}` -> [batch, …]
+  const [collabMap, setCollabMap] = useState({})           // `${date}|${supId}` -> [{ name, status }]
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [detail, setDetail] = useState(null) // { supId, name, role, date }
@@ -66,10 +71,12 @@ function UpdatesFeed() {
   useEffect(() => {
     let isMounted = true
     ;(async () => {
-      const [updRes, planRes, asnRes] = await Promise.all([
+      const [updRes, planRes, asnRes, batchRes, collabRes] = await Promise.all([
         fetchAllUpdatesRange(DAYS_BACK),
         fetchSiteReportsRange(DAYS_BACK),
         fetchAssignmentsRange(DAYS_BACK),
+        fetchBatchesRange(DAYS_BACK),
+        fetchCollaborationsRange(DAYS_BACK),
       ])
       if (!isMounted) return
       if (updRes.error) { setError(updRes.error.message); setLoading(false); return }
@@ -77,12 +84,23 @@ function UpdatesFeed() {
       const updateList = updRes.data || []
       const planList   = planRes.data || []
       const asnList    = asnRes.data || []
+      const batchList  = batchRes.data || []
+      const collabRows = collabRes.data || []
       setUpdates(updateList)
 
       // Structured plans keyed by date|supervisor
       const planMap = {}
       for (const p of planList) planMap[`${p.plan_date}|${p.supervisor_id}`] = p.report
       setPlansByKey(planMap)
+
+      // Batch-Mode teams keyed by date|supervisor
+      const batchMap = {}
+      for (const b of batchList) {
+        const key = `${b.date}|${b.supervisor_id}`
+        if (!batchMap[key]) batchMap[key] = []
+        batchMap[key].push(b)
+      }
+      setBatchesByKey(batchMap)
 
       // Resolve worker names + designations for all assignments in one query
       const workerIds = [...new Set(asnList.map((a) => a.worker_id || a.worker_table_id).filter(Boolean))]
@@ -112,14 +130,22 @@ function UpdatesFeed() {
       const supIds = [...new Set([
         ...updateList.map((u) => u.supervisor_id),
         ...planList.map((p) => p.supervisor_id),
+        ...batchList.map((b) => b.supervisor_id),
+        ...collabRows.map((c) => c.initiator_id),
+        ...collabRows.map((c) => c.collaborator_id),
       ])]
       if (supIds.length) {
         const { data: profiles } = await supabase
           .from('profiles').select('id, full_name, role').in('id', supIds)
         if (!isMounted) return
         const map = {}
-        for (const p of profiles || []) map[p.id] = { name: p.full_name || 'Unnamed supervisor', role: p.role }
+        const namesById = {}
+        for (const p of profiles || []) {
+          map[p.id] = { name: p.full_name || 'Unnamed supervisor', role: p.role }
+          namesById[p.id] = p.full_name || 'Supervisor'
+        }
         setSupervisorMeta(map)
+        setCollabMap(buildCollabMap(collabRows, namesById))
       }
 
       // Attachments for update previews + drawer
@@ -155,6 +181,11 @@ function UpdatesFeed() {
       const [date, supId] = key.split('|')
       ensure(date, supId)
     }
+    // …and supervisors who only submitted Batch-Mode teams
+    for (const key of Object.keys(batchesByKey)) {
+      const [date, supId] = key.split('|')
+      ensure(date, supId)
+    }
 
     const out = []
     for (const [date, bySup] of byDate) {
@@ -170,7 +201,7 @@ function UpdatesFeed() {
     }
     out.sort((a, b) => (a.date < b.date ? 1 : -1))
     return out
-  }, [updates, plansByKey, supervisorMeta])
+  }, [updates, plansByKey, batchesByKey, supervisorMeta])
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>
   if (error) return <p className="text-sm text-rose-600">{error}</p>
@@ -203,6 +234,8 @@ function UpdatesFeed() {
                   role={roleLabel(meta.role)}
                   report={plansByKey[key] || null}
                   team={teamsByKey[key] || []}
+                  batches={batchesByKey[key] || []}
+                  collaboration={collabMap[key] || []}
                   updates={supUpdates}
                   attsByUpdateId={attsByUpdateId}
                   onViewFull={() => setDetail({ supId, name: meta.name || 'Unnamed supervisor', role: roleLabel(meta.role), date: g.date })}
@@ -219,6 +252,7 @@ function UpdatesFeed() {
           detail={detail}
           report={plansByKey[`${detail.date}|${detail.supId}`] || null}
           team={teamsByKey[`${detail.date}|${detail.supId}`] || []}
+          batches={batchesByKey[`${detail.date}|${detail.supId}`] || []}
           updates={(groups.find((g) => g.date === detail.date)?.supervisors
             .find((s) => s.supId === detail.supId)?.updates) || []}
           attsByUpdateId={attsByUpdateId}
@@ -231,23 +265,55 @@ function UpdatesFeed() {
 
 // ── Supervisor card ────────────────────────────────────────
 
-function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onViewFull }) {
+function CollabBadges({ collaboration }) {
+  if (!collaboration?.length) return null
+  return (
+    <div className="flex items-center gap-1.5 mt-1 flex-wrap">
+      {collaboration.map((c, i) => (
+        <span
+          key={i}
+          className={`inline-flex items-center gap-1 text-xs px-2 py-0.5 rounded-full font-semibold border ${
+            c.status === 'accepted'
+              ? 'bg-purple-50 text-purple-700 border-purple-200'
+              : 'bg-purple-50/60 text-purple-400 border-purple-200 border-dashed'
+          }`}
+        >
+          🤝 {c.status === 'accepted' ? 'Collaborating with' : 'Pending'} {c.name}
+        </span>
+      ))}
+    </div>
+  )
+}
+
+function SupervisorCard({ name, role, report, team, batches = [], collaboration = [], updates, attsByUpdateId, onViewFull }) {
   const initial = (name || '?').charAt(0).toUpperCase()
   const eq = report?.equipment || {}
+  const hasBatches = batches.length > 0
 
-  // No structured plan submitted — muted card (still surface any updates)
+  // No structured plan submitted — but may still have Batch-Mode teams and/or updates
   if (!report) {
     return (
-      <div className="bg-white rounded-2xl border border-dashed border-gray-200 overflow-hidden mb-3">
+      <div className={`bg-white rounded-2xl overflow-hidden mb-3 ${
+        hasBatches ? 'border border-gray-100 shadow-sm' : 'border border-dashed border-gray-200'
+      }`}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3">
-          <div className="w-11 h-11 rounded-full bg-gray-100 text-gray-400 flex items-center justify-center font-bold text-base flex-shrink-0">
+          <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-base flex-shrink-0 ${
+            hasBatches ? 'bg-[#0F172A] text-white shadow-sm' : 'bg-gray-100 text-gray-400'
+          }`}>
             {initial}
           </div>
           <div>
             <span className="font-semibold text-gray-700 text-sm">{name}</span>
-            <p className="text-xs text-gray-400 mt-0.5">No work plan submitted for this date</p>
+            <p className="text-xs text-gray-400 mt-0.5">
+              {hasBatches
+                ? `Batch Mode · ${batches.length} batch${batches.length === 1 ? '' : 'es'}`
+                : 'No work plan submitted for this date'}
+            </p>
+            <CollabBadges collaboration={collaboration} />
           </div>
         </div>
+
+        <BatchTeamList batches={batches} />
 
         {updates.length > 0 && (
           <div className="border-t border-gray-100 px-5 py-3 bg-gray-50/40">
@@ -265,6 +331,17 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
                 </div>
               ))}
             </div>
+          </div>
+        )}
+
+        {hasBatches && (
+          <div className="border-t border-gray-50 px-5 py-3">
+            <button
+              onClick={onViewFull}
+              className="text-xs font-semibold text-[#C0272D] hover:text-red-800 flex items-center gap-1 transition-colors"
+            >
+              View full plan <span className="text-base leading-none">→</span>
+            </button>
           </div>
         )}
       </div>
@@ -306,6 +383,7 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
               <span className="text-xs text-gray-400">· {to12hr(report.work_from)}–{to12hr(report.work_to)}</span>
             )}
           </div>
+          <CollabBadges collaboration={collaboration} />
         </div>
       </div>
 
@@ -377,6 +455,9 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
         </div>
       )}
 
+      {/* Batch-Mode teams */}
+      <BatchTeamList batches={batches} />
+
       {/* Updates section */}
       {updates.length > 0 && (
         <div className="border-t border-gray-50 px-5 py-3 bg-gray-50/50">
@@ -420,7 +501,7 @@ function SupervisorCard({ name, role, report, team, updates, attsByUpdateId, onV
 
 // ── Detail drawer ──────────────────────────────────────────
 
-function DetailDrawer({ detail, report, team, updates, attsByUpdateId, onClose }) {
+function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdateId, onClose }) {
   const eq = report?.equipment || {}
   const hasTrawler = eq.trawler && eq.trawler !== 'NOT REQUIRED'
   return (
@@ -540,6 +621,57 @@ function DetailDrawer({ detail, report, team, updates, attsByUpdateId, onClose }
               </div>
             ) : <p className="text-sm text-gray-400">No team picked for this date.</p>}
           </section>
+
+          {/* Batches */}
+          {batches?.length > 0 && (
+            <section>
+              <h3 className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-3">
+                Batches ({batches.length})
+              </h3>
+              <div className="space-y-3">
+                {batches.map((batch, idx) => (
+                  <div key={batch.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="w-6 h-6 rounded-full bg-[#C0272D] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                        {idx + 1}
+                      </span>
+                      <span className="font-semibold text-gray-900 text-sm">{batch.batch_name}</span>
+                    </div>
+                    {batch.project_location && (
+                      <div className="flex justify-between text-xs mb-2">
+                        <span className="text-gray-500">Location</span>
+                        <span className="font-medium text-gray-900">{batch.project_location}</span>
+                      </div>
+                    )}
+                    {batch.tasks?.length > 0 && (
+                      <div className="mb-2">
+                        <p className="text-xs text-gray-500 mb-1">Tasks</p>
+                        <div className="flex flex-wrap gap-1">
+                          {batch.tasks.map((task) => (
+                            <span key={task} className="text-xs bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{task}</span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {batch.assignments?.length > 0 && (
+                      <div>
+                        <p className="text-xs text-gray-500 mb-1">Workers ({batch.assignments.length})</p>
+                        <div className="space-y-1">
+                          {batch.assignments.map((a, i) => (
+                            <div key={a.id || i} className="flex items-center gap-2 text-xs">
+                              <span className="text-gray-400 w-4">{i + 1}.</span>
+                              <span className="font-medium text-gray-900">{a.worker?.full_name}</span>
+                              <span className="text-gray-400 ml-auto">{a.worker?.designations?.name}</span>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </section>
+          )}
 
           {/* Updates */}
           <section>

@@ -4,6 +4,7 @@ import { Trash2, Plus, Pencil } from 'lucide-react'
 import Toast from './Toast'
 import { fetchSiteReport, saveSiteReport } from '../lib/work-plans'
 import { formatDate } from '../lib/dates'
+import { supabase } from '../lib/supabase'
 
 function to12hr(time24) {
   if (!time24) return ''
@@ -86,6 +87,15 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
   const [errors, setErrors] = useState({})
   const [saving, setSaving] = useState(false)
   const [toast, setToast] = useState(null)
+
+  // ── Vehicles (for equipment dropdowns) ─────────────────────
+  const [vehicles, setVehicles] = useState([])
+  useEffect(() => {
+    supabase.from('vehicles').select('id, vehicle_no, vehicle_type, driver_name')
+      .order('vehicle_type').then(({ data }) => setVehicles(data || []))
+  }, [])
+  const getVehiclesByType = (keyword) =>
+    vehicles.filter((v) => v.vehicle_type?.toLowerCase().includes(keyword.toLowerCase()))
 
   // Load + pre-fill any previously saved report for this date.
   useEffect(() => {
@@ -346,9 +356,24 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
       <div className="bg-white rounded-xl border border-gray-100 p-5 mb-4">
         <SectionHeader>Equipment</SectionHeader>
         <div className="space-y-4">
-          <EquipmentRow label="Crane" value={crane} onChange={setCrane} placeholder="e.g. ZOOMLION 80TONS CRANE" />
-          <EquipmentRow label="Hydra" value={hydra} onChange={setHydra} placeholder="e.g. F-15 - KA35NP1234" />
-          <EquipmentRow label="Cherry Picker" value={cherryPicker} onChange={setCherryPicker} placeholder="e.g. Model / ID number" />
+          <EquipmentSelect
+            label="Crane"
+            value={crane}
+            onChange={setCrane}
+            vehicles={[...getVehiclesByType('CRANE'), ...getVehiclesByType('BOOM LIFT')]}
+          />
+          <EquipmentSelect
+            label="Hydra"
+            value={hydra}
+            onChange={setHydra}
+            vehicles={getVehiclesByType('HYDRA')}
+          />
+          <EquipmentSelect
+            label="Cherry Picker"
+            value={cherryPicker}
+            onChange={setCherryPicker}
+            vehicles={vehicles.filter((v) => !['HYDRA', 'CRANE', 'LORRY', 'BOOM'].some((k) => v.vehicle_type?.toUpperCase().includes(k)))}
+          />
           <div className="flex flex-col sm:flex-row sm:items-center gap-2">
             <span className="text-sm font-medium text-gray-700 w-full sm:w-28 flex-shrink-0">Trawler</span>
             <div className="flex-1 w-full">
@@ -357,13 +382,18 @@ export default function DailySiteReport({ date, supervisorId, permitHolderDefaul
                   NOT REQUIRED
                 </div>
               ) : (
-                <input
-                  type="text"
+                <select
                   value={trawler}
                   onChange={(e) => setTrawler(e.target.value)}
-                  placeholder="e.g. KA35 trawler"
-                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-                />
+                  className="w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+                >
+                  <option value="">Not required</option>
+                  {getVehiclesByType('LORRY').map((v) => (
+                    <option key={v.id} value={`${v.vehicle_type} — ${v.vehicle_no}`}>
+                      {v.vehicle_type} — {v.vehicle_no} ({v.driver_name})
+                    </option>
+                  ))}
+                </select>
               )}
               <label className="flex items-center gap-2 text-sm text-gray-500 mt-1.5">
                 <input
@@ -524,17 +554,22 @@ function TimeChipPicker({ label, value, onChange }) {
   )
 }
 
-function EquipmentRow({ label, value, onChange, placeholder }) {
+function EquipmentSelect({ label, value, onChange, vehicles }) {
   return (
     <div className="flex flex-col sm:flex-row sm:items-center gap-2">
       <span className="text-sm font-medium text-gray-700 w-full sm:w-28 flex-shrink-0">{label}</span>
-      <input
-        type="text"
+      <select
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        placeholder={placeholder}
-        className="flex-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500"
-      />
+        className="flex-1 w-full border border-gray-300 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-red-500 bg-white"
+      >
+        <option value="">Not required</option>
+        {vehicles.map((v) => (
+          <option key={v.id} value={`${v.vehicle_type} — ${v.vehicle_no}`}>
+            {v.vehicle_type} — {v.vehicle_no} ({v.driver_name})
+          </option>
+        ))}
+      </select>
     </div>
   )
 }

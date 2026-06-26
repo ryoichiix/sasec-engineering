@@ -11,6 +11,8 @@ import {
   updateAssignmentTask,
 } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
+import { fetchBatchesForSupervisorDate } from '../lib/batches'
+import BatchTeamList from '../components/BatchTeamList'
 import { todayLocal, formatDate } from '../lib/dates'
 
 export default function SupervisorTeam() {
@@ -31,6 +33,16 @@ export default function SupervisorTeam() {
 
   // Per-worker task — { [assignmentId]: { value, saving, saved } }
   const [taskEdits, setTaskEdits] = useState({})
+
+  // ── Batch mode ─────────────────────────────────────────────
+  const [batchMode, setBatchMode] = useState(false)
+  const [batches, setBatches] = useState([
+    { id: crypto.randomUUID(), name: '', workers: [], location: '', tasks: [] },
+  ])
+  const [pickingForBatch, setPickingForBatch] = useState(null) // batch index
+  const [savingBatches, setSavingBatches] = useState(false)
+  const [batchSuccess, setBatchSuccess] = useState(null)
+  const [savedBatches, setSavedBatches] = useState([]) // already-submitted batches for this date
 
   // Used to suppress overlapping reloads from rapid realtime bursts
   const inflightRef = useRef(false)
@@ -71,6 +83,17 @@ export default function SupervisorTeam() {
   useEffect(() => {
     loadData()
   }, [loadData])
+
+  // ── Saved batches for the selected date (read-only summary) ──
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      if (!myId) return
+      const { data } = await fetchBatchesForSupervisorDate(myId, date)
+      if (active) setSavedBatches(data || [])
+    })()
+    return () => { active = false }
+  }, [myId, date])
 
   // ── Realtime subscription ──────────────────────────────────
   useEffect(() => {
@@ -132,6 +155,13 @@ export default function SupervisorTeam() {
     if (!filterDesignation) return free
     return free.filter((w) => w.designation_id === filterDesignation)
   }, [workers, assignmentByWorker, filterDesignation])
+
+  // Pool used by the batch builder — every present worker (minus directors),
+  // independent of daily_assignments claims since batches are their own flow.
+  const batchPool = useMemo(
+    () => workers.filter((w) => !isDirector(w)),
+    [workers]
+  )
 
   const otherTeams = useMemo(() => {
     const bySup = new Map()
@@ -209,6 +239,90 @@ export default function SupervisorTeam() {
     if (!err) loadData()
   }
 
+  // ── Batch actions ──────────────────────────────────────────
+  const addBatch = () =>
+    setBatches((prev) => [
+      ...prev,
+      { id: crypto.randomUUID(), name: '', workers: [], location: '', tasks: [] },
+    ])
+
+  const removeBatch = (idx) =>
+    setBatches((prev) => prev.filter((_, i) => i !== idx))
+
+  const updateBatch = (idx, field, value) =>
+    setBatches((prev) => prev.map((b, i) => (i === idx ? { ...b, [field]: value } : b)))
+
+  const removeWorkerFromBatch = (batchIdx, workerId) =>
+    setBatches((prev) =>
+      prev.map((b, i) =>
+        i === batchIdx ? { ...b, workers: b.workers.filter((w) => w.id !== workerId) } : b
+      )
+    )
+
+  const saveAllBatches = async () => {
+    const filled = batches.filter((b) => b.workers.length > 0)
+    if (filled.length === 0) {
+      setError('Add at least one worker to a batch before saving.')
+      return
+    }
+    setSavingBatches(true)
+    setError(null)
+    setFlashMsg(null)
+    setBatchSuccess(null)
+
+    let saved = 0
+    for (let i = 0; i < batches.length; i++) {
+      const batch = batches[i]
+      if (batch.workers.length === 0) continue
+
+      // 1. Save the batch record
+      const { data: batchRecord, error: bErr } = await supabase
+        .from('today_team_batches')
+        .insert({
+          supervisor_id: myId,
+          date,
+          batch_name: batch.name?.trim() || `Batch ${i + 1}`,
+          batch_number: i + 1,
+          project_location: batch.location?.trim() || null,
+          tasks: batch.tasks,
+          worker_ids: batch.workers.map((w) => w.id),
+        })
+        .select()
+        .single()
+
+      if (bErr) {
+        setError(`Couldn't save "${batch.name || `Batch ${i + 1}`}": ${bErr.message}`)
+        setSavingBatches(false)
+        return
+      }
+
+      // 2. Save per-worker assignments for this batch
+      const { error: aErr } = await supabase.from('batch_worker_assignments').insert(
+        batch.workers.map((w) => ({
+          batch_id: batchRecord.id,
+          worker_id: w.id,
+          task: batch.tasks.join(', ') || null,
+        }))
+      )
+
+      if (aErr) {
+        setError(`Saved batch "${batchRecord.batch_name}" but worker assignments failed: ${aErr.message}`)
+        setSavingBatches(false)
+        return
+      }
+
+      saved++
+    }
+
+    setSavingBatches(false)
+    setBatchSuccess(`${saved} batch${saved === 1 ? '' : 'es'} saved successfully for ${formatDate(date)}.`)
+    // Reset to a single empty batch so the supervisor can start fresh
+    setBatches([{ id: crypto.randomUUID(), name: '', workers: [], location: '', tasks: [] }])
+    // Refresh the read-only summary of what's been submitted
+    const { data: refreshed } = await fetchBatchesForSupervisorDate(myId, date)
+    setSavedBatches(refreshed || [])
+  }
+
   const liveColor =
     liveStatus === 'live' ? 'bg-emerald-500'
     : liveStatus === 'error' ? 'bg-rose-500'
@@ -259,6 +373,30 @@ export default function SupervisorTeam() {
         </div>
       </div>
 
+      {/* Batch mode toggle */}
+      <div className="flex items-center justify-between bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 mb-4">
+        <div>
+          <p className="font-semibold text-gray-900 text-sm">Batch Mode</p>
+          <p className="text-xs text-gray-400 mt-0.5">
+            Split your team into multiple groups with different work plans
+          </p>
+        </div>
+        <button
+          onClick={() => setBatchMode((v) => !v)}
+          aria-pressed={batchMode}
+          aria-label="Toggle batch mode"
+          className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${
+            batchMode ? 'bg-[#C0272D]' : 'bg-gray-200'
+          }`}
+        >
+          <span
+            className={`inline-block h-5 w-5 transform rounded-full bg-white shadow-sm transition-transform ${
+              batchMode ? 'translate-x-6' : 'translate-x-1'
+            }`}
+          />
+        </button>
+      </div>
+
       {flashMsg && (
         <div className="mb-4 px-4 py-2 rounded-md bg-amber-50 border border-amber-200 text-sm text-amber-800">
           {flashMsg}
@@ -269,8 +407,168 @@ export default function SupervisorTeam() {
           {error}
         </div>
       )}
+      {batchSuccess && (
+        <div className="mb-4 px-4 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
+          {batchSuccess}
+        </div>
+      )}
 
-      {loading ? (
+      {batchMode ? (
+        <div>
+          {/* ── Already submitted (read-only) ─────────────── */}
+          {savedBatches.length > 0 && (
+            <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 overflow-hidden">
+              <div className="px-5 pt-4 pb-1 flex items-center justify-between">
+                <p className="text-sm font-semibold text-gray-900">
+                  ✓ Submitted for {formatDate(date)}
+                </p>
+                <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
+                  Read-only
+                </span>
+              </div>
+              <BatchTeamList batches={savedBatches} />
+            </div>
+          )}
+
+          {/* ── Batch list ──────────────────────────────── */}
+          {batches.map((batch, batchIdx) => (
+            <div
+              key={batch.id}
+              className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 overflow-hidden"
+            >
+              {/* Batch header */}
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
+                <div className="flex items-center gap-3">
+                  <div className="w-8 h-8 rounded-full bg-[#C0272D] text-white flex items-center justify-center text-sm font-bold">
+                    {batchIdx + 1}
+                  </div>
+                  <input
+                    type="text"
+                    value={batch.name}
+                    onChange={(e) => updateBatch(batchIdx, 'name', e.target.value)}
+                    placeholder={`Batch ${batchIdx + 1} — e.g. BF#3 Team`}
+                    className="text-sm font-semibold text-gray-900 outline-none border-b border-dashed border-gray-300 focus:border-[#C0272D] bg-transparent pb-0.5"
+                  />
+                </div>
+                {batches.length > 1 && (
+                  <button
+                    onClick={() => removeBatch(batchIdx)}
+                    className="text-xs text-red-400 hover:text-red-600"
+                  >
+                    Remove
+                  </button>
+                )}
+              </div>
+
+              {/* Workers in this batch */}
+              <div className="px-5 py-4 border-b border-gray-50">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+                  Workers ({batch.workers.length})
+                </p>
+                {batch.workers.length > 0 ? (
+                  <div className="space-y-2 mb-3">
+                    {batch.workers.map((worker) => (
+                      <div key={worker.id} className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 flex-shrink-0">
+                          {worker.full_name?.charAt(0)}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900 truncate">
+                            {worker.full_name}
+                          </p>
+                          <p className="text-xs text-gray-400">{worker.designations?.name}</p>
+                        </div>
+                        <button
+                          onClick={() => removeWorkerFromBatch(batchIdx, worker.id)}
+                          className="text-gray-300 hover:text-red-500 text-sm flex-shrink-0"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-xs text-gray-400 mb-3">No workers added yet</p>
+                )}
+
+                {/* Add workers from pool */}
+                <button
+                  onClick={() => setPickingForBatch(batchIdx)}
+                  className="text-xs font-semibold text-[#C0272D] hover:text-red-800"
+                >
+                  + Add workers from pool
+                </button>
+              </div>
+
+              {/* Mini work plan for this batch */}
+              <div className="px-5 py-4">
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
+                  Work Plan
+                </p>
+
+                {/* Project location */}
+                <div className="mb-3">
+                  <label className="text-xs text-gray-500 mb-1 block">Location</label>
+                  <input
+                    type="text"
+                    value={batch.location}
+                    onChange={(e) => updateBatch(batchIdx, 'location', e.target.value)}
+                    placeholder="e.g. BF#3, Sinter Plant #3"
+                    className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+                  />
+                </div>
+
+                {/* Tasks */}
+                <div className="mb-2">
+                  <label className="text-xs text-gray-500 mb-1 block">Tasks</label>
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {[
+                      'Erection of columns', 'Welding of Base Plates', 'Fabrication',
+                      'Dismantling', 'Welding', 'Shifting', 'Scrap Shifting',
+                      'Loading', 'Punch Points',
+                    ].map((chip) => (
+                      <button
+                        key={chip}
+                        type="button"
+                        onClick={() => {
+                          const tasks = batch.tasks.includes(chip)
+                            ? batch.tasks.filter((t) => t !== chip)
+                            : [...batch.tasks, chip]
+                          updateBatch(batchIdx, 'tasks', tasks)
+                        }}
+                        className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
+                          batch.tasks.includes(chip)
+                            ? 'bg-[#0F172A] text-white border-[#0F172A]'
+                            : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
+                        }`}
+                      >
+                        {chip}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </div>
+          ))}
+
+          {/* Add batch button */}
+          <button
+            onClick={addBatch}
+            className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm font-semibold text-gray-400 hover:border-[#C0272D] hover:text-[#C0272D] transition-colors mb-4"
+          >
+            + Add another batch
+          </button>
+
+          {/* Save all batches */}
+          <button
+            onClick={saveAllBatches}
+            disabled={savingBatches}
+            className="w-full bg-[#C0272D] hover:bg-red-800 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+          >
+            {savingBatches ? 'Saving…' : 'Save All Batches'}
+          </button>
+        </div>
+      ) : loading ? (
         <p className="text-sm text-slate-500">Loading…</p>
       ) : (
         <div className="space-y-8">
@@ -431,6 +729,90 @@ export default function SupervisorTeam() {
               </ul>
             )}
           </Section>
+        </div>
+      )}
+
+      {/* ── Worker picker for a batch ─────────────────── */}
+      {pickingForBatch !== null && (
+        <div className="fixed inset-0 z-50 flex items-end">
+          <div className="flex-1 bg-black/40" onClick={() => setPickingForBatch(null)} />
+          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
+              <h3 className="font-semibold text-gray-900">
+                Add workers to Batch {pickingForBatch + 1}
+              </h3>
+              <button onClick={() => setPickingForBatch(null)} className="text-gray-400">
+                ✕
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-3 space-y-2">
+              {batchPool.length === 0 && (
+                <p className="text-sm text-gray-400 py-6 text-center">
+                  No present workers to add for {formatDate(date)}.
+                </p>
+              )}
+              {batchPool.map((worker) => {
+                const alreadyInBatch = batches[pickingForBatch]?.workers.some(
+                  (w) => w.id === worker.id
+                )
+                const inOtherBatch = batches.some(
+                  (b, i) => i !== pickingForBatch && b.workers.some((w) => w.id === worker.id)
+                )
+                return (
+                  <div
+                    key={worker.id}
+                    onClick={() => {
+                      if (inOtherBatch) return
+                      if (alreadyInBatch) {
+                        removeWorkerFromBatch(pickingForBatch, worker.id)
+                      } else {
+                        updateBatch(pickingForBatch, 'workers', [
+                          ...batches[pickingForBatch].workers,
+                          worker,
+                        ])
+                      }
+                    }}
+                    className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+                      alreadyInBatch
+                        ? 'bg-[#0F172A] border-[#0F172A]'
+                        : inOtherBatch
+                        ? 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
+                        : 'bg-white border-gray-100 hover:border-gray-300'
+                    }`}
+                  >
+                    <div
+                      className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
+                        alreadyInBatch ? 'bg-white text-[#0F172A]' : 'bg-gray-100 text-gray-600'
+                      }`}
+                    >
+                      {worker.full_name?.charAt(0)}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p
+                        className={`text-sm font-medium truncate ${
+                          alreadyInBatch ? 'text-white' : 'text-gray-900'
+                        }`}
+                      >
+                        {worker.full_name}
+                      </p>
+                      <p className={`text-xs ${alreadyInBatch ? 'text-gray-300' : 'text-gray-400'}`}>
+                        {worker.designations?.name} {inOtherBatch ? '· In another batch' : ''}
+                      </p>
+                    </div>
+                    {alreadyInBatch && <span className="text-white text-sm">✓</span>}
+                  </div>
+                )
+              })}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-100">
+              <button
+                onClick={() => setPickingForBatch(null)}
+                className="w-full bg-[#0F172A] text-white font-semibold py-3 rounded-xl"
+              >
+                Done — {batches[pickingForBatch]?.workers.length || 0} workers selected
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </DashboardShell>
