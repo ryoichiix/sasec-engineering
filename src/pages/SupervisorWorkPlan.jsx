@@ -475,13 +475,16 @@ function CollaboratorsCard({ userId, userName, date }) {
     const { added, error: err } = await saveCollaborations(userId, date, selectedCollaborators)
     if (err) { setSaving(false); setError(err.message); return }
 
-    // Notify only the newly-tagged supervisors.
-    for (const collabId of added) {
+    // Notify only the newly-tagged supervisors. Reference the exact link row so
+    // the recipient can Accept / Decline it straight from the notification.
+    for (const link of added) {
       await notifyUser({
-        userId: collabId,
+        userId: link.collaborator_id,
         type: 'collaboration_request',
         title: 'Collaboration request',
         message: `${userName || 'A supervisor'} tagged you as working together on ${formatDate(date)}. Your work plans will be linked in the feed.`,
+        referenceId: link.id,
+        referenceType: 'collaboration',
       })
     }
     setInitialSelected(selectedCollaborators)

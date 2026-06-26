@@ -32,7 +32,9 @@ export function fetchCollaborationsForDate(userId, date) {
  * Sync this user's collaboration tags for a date to exactly `collaboratorIds`:
  * insert newly-added links (status 'pending') and delete removed ones, so
  * re-saving the same picker never duplicates rows. Returns { added, error }
- * where `added` is the list of newly-tagged ids to notify.
+ * where `added` is the list of newly-inserted rows ({ id, collaborator_id })
+ * to notify — the row `id` lets the notification reference the exact link so
+ * the collaborator can Accept / Decline it.
  */
 export async function saveCollaborations(initiatorId, date, collaboratorIds) {
   const { data: existing, error: fetchErr } = await supabase
@@ -43,7 +45,7 @@ export async function saveCollaborations(initiatorId, date, collaboratorIds) {
   if (fetchErr) return { added: [], error: fetchErr }
 
   const existingIds = (existing || []).map((r) => r.collaborator_id)
-  const added = collaboratorIds.filter((id) => !existingIds.includes(id))
+  const addedIds = collaboratorIds.filter((id) => !existingIds.includes(id))
   const removed = (existing || []).filter((r) => !collaboratorIds.includes(r.collaborator_id))
 
   if (removed.length) {
@@ -53,16 +55,20 @@ export async function saveCollaborations(initiatorId, date, collaboratorIds) {
       .in('id', removed.map((r) => r.id))
     if (error) return { added: [], error }
   }
-  if (added.length) {
-    const { error } = await supabase
+
+  let added = []
+  if (addedIds.length) {
+    const { data: inserted, error } = await supabase
       .from('work_plan_collaborations')
-      .insert(added.map((collaboratorId) => ({
+      .insert(addedIds.map((collaboratorId) => ({
         initiator_id: initiatorId,
         collaborator_id: collaboratorId,
         date,
         status: 'pending',
       })))
+      .select('id, collaborator_id')
     if (error) return { added: [], error }
+    added = inserted || []
   }
   return { added, error: null }
 }

@@ -4,6 +4,7 @@ import { CheckCircle2 } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
 import EmptyState from '../components/EmptyState'
 import { useAuth } from '../contexts/auth-context'
+import { supabase } from '../lib/supabase'
 import { fetchAllNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
 import { getNotifMeta, getNotifPath, getNotifCategory, cleanTitle, formatUiText } from '../lib/notification-meta'
 import { todayLocal, toIST } from '../lib/dates'
@@ -48,6 +49,7 @@ export default function Notifications() {
   const [items, setItems] = useState([])
   const [loading, setLoading] = useState(true)
   const [tab, setTab] = useState('all')
+  const [respondedIds, setRespondedIds] = useState({}) // collab notif id -> 'accepted' | 'declined'
 
   useEffect(() => {
     if (!user?.id) return
@@ -83,6 +85,33 @@ export default function Notifications() {
       )
     }
     navigate(getNotifPath(n, role, isFieldManager))
+  }
+
+  // Accept / Decline a collaboration request straight from the notification.
+  const handleCollabResponse = async (n, status) => {
+    // Prefer the exact link referenced by the notification; fall back to this
+    // user's most recent still-pending request if older notifs lack a ref.
+    let collabId = n.reference_id
+    if (!collabId) {
+      const { data } = await supabase
+        .from('work_plan_collaborations')
+        .select('id')
+        .eq('collaborator_id', user.id)
+        .eq('status', 'pending')
+        .order('date', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      collabId = data?.id
+    }
+    if (collabId) {
+      await supabase
+        .from('work_plan_collaborations')
+        .update({ status })
+        .eq('id', collabId)
+    }
+    if (!n.is_read) await markNotificationRead(n.id)
+    setRespondedIds((p) => ({ ...p, [n.id]: status }))
+    setItems((prev) => prev.map((item) => (item.id === n.id ? { ...item, is_read: true } : item)))
   }
 
   return (
@@ -143,8 +172,16 @@ export default function Notifications() {
                       const Icon = meta.Icon
                       return (
                         <li key={n.id}>
-                          <button
+                          <div
+                            role="button"
+                            tabIndex={0}
                             onClick={() => handleItemClick(n)}
+                            onKeyDown={(e) => {
+                              if (e.key === 'Enter' || e.key === ' ') {
+                                e.preventDefault()
+                                handleItemClick(n)
+                              }
+                            }}
                             className={`w-full text-left flex gap-3 px-4 py-4 border-l-4 ${meta.border} border-b border-slate-100 last:border-b-0 cursor-pointer transition-colors hover:bg-slate-50 ${
                               !n.is_read ? 'bg-[#F8FAFC]' : 'bg-white'
                             }`}
@@ -169,8 +206,34 @@ export default function Notifications() {
                               <p className="text-xs text-slate-400 mt-1.5">
                                 {toIST(n.created_at)}
                               </p>
+
+                              {/* Collaboration request — accept / decline inline */}
+                              {n.type === 'collaboration_request' && (
+                                respondedIds[n.id] ? (
+                                  <p className={`mt-2 text-xs font-semibold ${
+                                    respondedIds[n.id] === 'accepted' ? 'text-purple-700' : 'text-slate-400'
+                                  }`}>
+                                    {respondedIds[n.id] === 'accepted' ? '🤝 Accepted' : 'Declined'}
+                                  </p>
+                                ) : (
+                                  <div className="flex gap-2 mt-2">
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleCollabResponse(n, 'accepted') }}
+                                      className="px-3 py-1.5 bg-[#0F172A] text-white text-xs font-semibold rounded-lg hover:bg-gray-800"
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      onClick={(e) => { e.stopPropagation(); handleCollabResponse(n, 'declined') }}
+                                      className="px-3 py-1.5 border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50"
+                                    >
+                                      Decline
+                                    </button>
+                                  </div>
+                                )
+                              )}
                             </div>
-                          </button>
+                          </div>
                         </li>
                       )
                     })}

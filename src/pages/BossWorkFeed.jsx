@@ -622,46 +622,88 @@ function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdat
                 Batches ({batches.length})
               </h3>
               <div className="space-y-3">
-                {batches.map((batch, idx) => (
-                  <div key={batch.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
-                    <div className="flex items-center gap-2 mb-2">
-                      <span className="w-6 h-6 rounded-full bg-[#C0272D] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
-                        {idx + 1}
-                      </span>
-                      <span className="font-semibold text-gray-900 text-sm">{batch.batch_name}</span>
-                    </div>
-                    {batch.project_location && (
-                      <div className="flex justify-between text-xs mb-2">
-                        <span className="text-gray-500">Location</span>
-                        <span className="font-medium text-gray-900">{batch.project_location}</span>
+                {batches.map((batch, idx) => {
+                  const m = batch.metadata || {}
+                  const fields = [
+                    { label: 'Project', value: m.project_description || batch.project_description },
+                    { label: 'Location', value: m.project_location || batch.project_location },
+                    { label: 'Timing', value: m.timing_from ? `${m.timing_from} – ${m.timing_to || ''}`.trim() : null },
+                  ].filter((f) => f.value)
+                  const equipment = [
+                    { key: 'crane', icon: '🏗', label: 'Crane' },
+                    { key: 'hydra', icon: '🔧', label: 'Hydra' },
+                    { key: 'trawler', icon: '🚛', label: 'Trawler' },
+                    { key: 'cherry_picker', icon: '🏗', label: 'Cherry Picker' },
+                  ].filter((e) => m[e.key])
+                  return (
+                    <div key={batch.id} className="bg-gray-50 rounded-xl p-4 border border-gray-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="w-6 h-6 rounded-full bg-[#C0272D] text-white text-xs font-bold flex items-center justify-center flex-shrink-0">
+                          {idx + 1}
+                        </span>
+                        <span className="font-semibold text-gray-900 text-sm">{batch.batch_name}</span>
                       </div>
-                    )}
-                    {batch.tasks?.length > 0 && (
-                      <div className="mb-2">
-                        <p className="text-xs text-gray-500 mb-1">Tasks</p>
-                        <div className="flex flex-wrap gap-1">
-                          {batch.tasks.map((task) => (
-                            <span key={task} className="text-xs bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{task}</span>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    {batch.assignments?.length > 0 && (
-                      <div>
-                        <p className="text-xs text-gray-500 mb-1">Workers ({batch.assignments.length})</p>
-                        <div className="space-y-1">
-                          {batch.assignments.map((a, i) => (
-                            <div key={a.id || i} className="flex items-center gap-2 text-xs">
-                              <span className="text-gray-400 w-4">{i + 1}.</span>
-                              <span className="font-medium text-gray-900">{a.worker?.full_name}</span>
-                              <span className="text-gray-400 ml-auto">{a.worker?.designations?.name}</span>
+
+                      {(fields.length > 0 || m.ot_planned) && (
+                        <div className="space-y-2 mb-3">
+                          {fields.map((f) => (
+                            <div key={f.label} className="flex justify-between text-xs gap-4">
+                              <span className="text-gray-500 flex-shrink-0">{f.label}</span>
+                              <span className="font-medium text-gray-900 text-right">{f.value}</span>
                             </div>
                           ))}
+                          {m.ot_planned && (
+                            <div className="flex justify-between text-xs gap-4">
+                              <span className="text-amber-600 flex-shrink-0">⚡ OT</span>
+                              <span className="font-semibold text-amber-700 text-right">{m.ot_from || '—'} – {m.ot_to || '—'}</span>
+                            </div>
+                          )}
                         </div>
-                      </div>
-                    )}
-                  </div>
-                ))}
+                      )}
+
+                      {batch.tasks?.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs text-gray-500 mb-1">Tasks</p>
+                          <div className="flex flex-wrap gap-1">
+                            {batch.tasks.map((task) => (
+                              <span key={task} className="text-xs bg-white border border-gray-200 text-gray-600 px-2 py-0.5 rounded-full">{task}</span>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {equipment.length > 0 && (
+                        <div className="mb-3">
+                          <p className="text-xs text-gray-500 mb-1">Equipment</p>
+                          <div className="space-y-1">
+                            {equipment.map((e) => (
+                              <div key={e.key} className="flex items-center gap-2 text-xs">
+                                <span>{e.icon}</span>
+                                <span className="text-gray-500 w-24 flex-shrink-0">{e.label}</span>
+                                <span className="text-gray-700">{m[e.key]}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                      {batch.assignments?.length > 0 && (
+                        <div>
+                          <p className="text-xs text-gray-500 mb-1">Workers ({batch.assignments.length})</p>
+                          <div className="space-y-1">
+                            {batch.assignments.map((a, i) => (
+                              <div key={a.id || i} className="flex items-center gap-2 text-xs">
+                                <span className="text-gray-400 w-4">{i + 1}.</span>
+                                <span className="font-medium text-gray-900">{a.worker?.full_name}</span>
+                                <span className="text-gray-400 ml-auto">{a.worker?.designations?.name}</span>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
             </section>
           )}

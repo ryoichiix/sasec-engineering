@@ -10,7 +10,7 @@ const sinceDateStr = (daysBack) => {
 // no plain `designation` column, so we embed the join (selecting a non-existent
 // column would make PostgREST reject the whole request).
 const BATCH_SELECT = `
-  id, supervisor_id, date, batch_name, batch_number, project_location, tasks, worker_ids, created_at,
+  id, supervisor_id, date, batch_name, batch_number, project_description, project_location, tasks, metadata, worker_ids, created_at,
   assignments:batch_worker_assignments(
     id,
     worker:workers(id, full_name, designations(name))
