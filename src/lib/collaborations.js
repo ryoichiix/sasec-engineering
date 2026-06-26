@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { notifyUser } from './notifications'
+import { formatDate } from './dates'
 
 const sinceDateStr = (daysBack) => {
   const since = new Date()
@@ -71,6 +73,54 @@ export async function saveCollaborations(initiatorId, date, collaboratorIds) {
     added = inserted || []
   }
   return { added, error: null }
+}
+
+/**
+ * Respond to a collaboration request from a notification: set the link's status
+ * to 'accepted' / 'declined' and — on accept — notify the initiator that the
+ * collaborator agreed. Resolves the exact link via the notification's
+ * reference_id, falling back to this user's most recent pending request.
+ *
+ * Returns { error, collab }.
+ */
+export async function respondToCollaboration({ notification, userId, userName, status }) {
+  let collab = null
+  if (notification?.reference_id) {
+    const { data } = await supabase
+      .from('work_plan_collaborations')
+      .select('id, initiator_id, date')
+      .eq('id', notification.reference_id)
+      .maybeSingle()
+    collab = data
+  }
+  if (!collab) {
+    const { data } = await supabase
+      .from('work_plan_collaborations')
+      .select('id, initiator_id, date')
+      .eq('collaborator_id', userId)
+      .eq('status', 'pending')
+      .order('date', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    collab = data
+  }
+  if (!collab) return { error: null, collab: null }
+
+  const { error } = await supabase
+    .from('work_plan_collaborations')
+    .update({ status })
+    .eq('id', collab.id)
+  if (error) return { error, collab: null }
+
+  if (status === 'accepted') {
+    await notifyUser({
+      userId: collab.initiator_id,
+      type: 'collaboration_accepted',
+      title: 'Collaboration accepted',
+      message: `${userName || 'A supervisor'} accepted your collaboration request for ${formatDate(collab.date)}.`,
+    })
+  }
+  return { error: null, collab }
 }
 
 /** Every collaboration link in the last `daysBack` days (for the work feeds). */

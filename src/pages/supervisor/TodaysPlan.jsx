@@ -5,7 +5,7 @@ import BatchPlanBuilder from '../../components/BatchPlanBuilder'
 import { useAuth } from '../../contexts/auth-context'
 import { supabase } from '../../lib/supabase'
 import {
-  fetchPresentWorkers,
+  fetchAllWorkers,
   fetchAssignmentsForDate,
   claimWorker,
   releaseWorker,
@@ -106,15 +106,17 @@ function SinglePlan({ date, user, profile }) {
     if (inflightRef.current) return
     inflightRef.current = true
     try {
-      const [presentRes, assignRes] = await Promise.all([
-        fetchPresentWorkers(date),
+      const [workersRes, assignRes] = await Promise.all([
+        fetchAllWorkers(),
         fetchAssignmentsForDate(date),
       ])
-      if (presentRes.error || assignRes.error) {
-        setError((presentRes.error || assignRes.error).message)
+      if (workersRes.error || assignRes.error) {
+        setError((workersRes.error || assignRes.error).message)
       } else {
         setError(null)
-        setWorkers(presentRes.data || [])
+        // Debug: confirm the worker pool actually loads and shows the field names.
+        console.log('[TodaysPlan] worker pool loaded:', workersRes.data?.length ?? 0, workersRes.data)
+        setWorkers(workersRes.data || [])
         setAssignments(assignRes.data || [])
       }
       setLoading(false)
@@ -692,7 +694,7 @@ function SinglePlan({ date, user, profile }) {
               ) : pickerList.length === 0 ? (
                 <p className="text-center text-sm text-gray-400 py-10">
                   {workers.length === 0
-                    ? 'No workers available — mark attendance first.'
+                    ? 'No workers found.'
                     : 'No workers match your search.'}
                 </p>
               ) : (

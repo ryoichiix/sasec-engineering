@@ -129,9 +129,9 @@ export function getNotifPath(n, role, isFieldManager = false) {
     return '/supervisor'
   }
 
-  // Collaboration request — the tagged supervisor manages it from Today's Plan
-  // (or the work feed, if they're also a Site Incharge).
-  if (type === 'collaboration_request') {
+  // Collaboration request / acceptance — managed from Today's Plan (or the work
+  // feed, if the viewer is also a Site Incharge).
+  if (type === 'collaboration_request' || type === 'collaboration_accepted') {
     if (isFieldManager) return '/supervisor/work-feed'
     return '/supervisor/todays-plan'
   }

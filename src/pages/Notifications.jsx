@@ -4,7 +4,7 @@ import { CheckCircle2 } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
 import EmptyState from '../components/EmptyState'
 import { useAuth } from '../contexts/auth-context'
-import { supabase } from '../lib/supabase'
+import { respondToCollaboration } from '../lib/collaborations'
 import { fetchAllNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
 import { getNotifMeta, getNotifPath, getNotifCategory, cleanTitle, formatUiText } from '../lib/notification-meta'
 import { todayLocal, toIST } from '../lib/dates'
@@ -88,27 +88,10 @@ export default function Notifications() {
   }
 
   // Accept / Decline a collaboration request straight from the notification.
+  // The shared helper updates the link's status and — on accept — notifies the
+  // initiator that the request was accepted.
   const handleCollabResponse = async (n, status) => {
-    // Prefer the exact link referenced by the notification; fall back to this
-    // user's most recent still-pending request if older notifs lack a ref.
-    let collabId = n.reference_id
-    if (!collabId) {
-      const { data } = await supabase
-        .from('work_plan_collaborations')
-        .select('id')
-        .eq('collaborator_id', user.id)
-        .eq('status', 'pending')
-        .order('date', { ascending: false })
-        .limit(1)
-        .maybeSingle()
-      collabId = data?.id
-    }
-    if (collabId) {
-      await supabase
-        .from('work_plan_collaborations')
-        .update({ status })
-        .eq('id', collabId)
-    }
+    await respondToCollaboration({ notification: n, userId: user.id, userName: profile?.full_name, status })
     if (!n.is_read) await markNotificationRead(n.id)
     setRespondedIds((p) => ({ ...p, [n.id]: status }))
     setItems((prev) => prev.map((item) => (item.id === n.id ? { ...item, is_read: true } : item)))

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '../lib/supabase'
-import { fetchPresentWorkers } from '../lib/assignments'
+import { fetchAllWorkers } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
 import { fetchBatchesForSupervisorDate } from '../lib/batches'
 import { fetchVehicles } from '../lib/vehicles'
@@ -40,7 +40,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
   // false on every date change — no synchronous reset needed in the effect.
   useEffect(() => {
     let active = true
-    fetchPresentWorkers(date).then(({ data }) => {
+    fetchAllWorkers().then(({ data }) => {
       if (!active) return
       setPool((data || []).filter((w) => !isDirector(w)))
       setPoolLoaded(true)
@@ -559,7 +559,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 <p className="text-sm text-gray-400 py-6 text-center">Loading workers…</p>
               ) : pool.length === 0 ? (
                 <p className="text-sm text-gray-400 py-6 text-center">
-                  No present workers for {formatDate(date)} — mark attendance first.
+                  No workers found.
                 </p>
               ) : (
                 pool.map((worker) => {

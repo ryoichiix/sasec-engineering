@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { CheckCircle2 } from 'lucide-react'
 import { useAuth } from '../contexts/auth-context'
 import { fetchNotifications, markAllRead, markNotificationRead } from '../lib/notifications'
+import { respondToCollaboration } from '../lib/collaborations'
 import { getNotifMeta, getNotifPath, cleanTitle, formatUiText } from '../lib/notification-meta'
 import { toIST } from '../lib/dates'
 
@@ -15,6 +16,7 @@ export default function NotificationBell() {
   const [notifications, setNotifications] = useState([])
   const [unread, setUnread]               = useState(0)
   const [open, setOpen]                   = useState(false)
+  const [respondedIds, setRespondedIds]   = useState({}) // collab notif id -> 'accepted' | 'declined'
   const dropRef = useRef(null)
 
   // eslint-disable-next-line react-hooks/preserve-manual-memoization
@@ -63,6 +65,18 @@ export default function NotificationBell() {
     }
     setOpen(false)
     navigate(getNotifPath(n, role, isFieldManager))
+  }
+
+  // Accept / Decline a collaboration request inline (without navigating away).
+  const handleCollabResponse = async (e, n, status) => {
+    e.stopPropagation()
+    await respondToCollaboration({ notification: n, userId: user.id, userName: profile?.full_name, status })
+    if (!n.is_read) {
+      markNotificationRead(n.id)
+      setNotifications((prev) => prev.map((it) => (it.id === n.id ? { ...it, is_read: true } : it)))
+      setUnread((prev) => Math.max(0, prev - 1))
+    }
+    setRespondedIds((p) => ({ ...p, [n.id]: status }))
   }
 
   const visible = notifications.slice(0, VISIBLE_LIMIT)
@@ -122,8 +136,13 @@ export default function NotificationBell() {
                 const Icon = meta.Icon
                 return (
                   <li key={n.id}>
-                    <button
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => handleItemClick(n)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleItemClick(n) }
+                      }}
                       className={`w-full text-left flex gap-2.5 px-3 py-3 border-l-4 ${meta.border} border-b border-slate-100 last:border-b-0 cursor-pointer transition-colors hover:bg-slate-100 ${
                         !n.is_read ? 'bg-[#F8FAFC]' : 'bg-white'
                       }`}
@@ -150,8 +169,34 @@ export default function NotificationBell() {
                         <p className="text-[10px] text-slate-400 mt-1">
                           {toIST(n.created_at)}
                         </p>
+
+                        {/* Collaboration request — accept / decline inline */}
+                        {n.type === 'collaboration_request' && (
+                          respondedIds[n.id] ? (
+                            <p className={`mt-2 text-xs font-semibold ${
+                              respondedIds[n.id] === 'accepted' ? 'text-purple-700' : 'text-slate-400'
+                            }`}>
+                              {respondedIds[n.id] === 'accepted' ? '🤝 Accepted' : 'Declined'}
+                            </p>
+                          ) : (
+                            <div className="flex gap-2 mt-2">
+                              <button
+                                onClick={(e) => handleCollabResponse(e, n, 'accepted')}
+                                className="px-3 py-1 bg-[#0F172A] text-white text-xs font-semibold rounded-lg hover:bg-gray-800"
+                              >
+                                Accept
+                              </button>
+                              <button
+                                onClick={(e) => handleCollabResponse(e, n, 'declined')}
+                                className="px-3 py-1 border border-red-200 text-red-600 text-xs font-semibold rounded-lg hover:bg-red-50"
+                              >
+                                Decline
+                              </button>
+                            </div>
+                          )
+                        )}
                       </div>
-                    </button>
+                    </div>
                   </li>
                 )
               })}

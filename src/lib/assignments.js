@@ -48,6 +48,18 @@ export function fetchAssignmentsForDate(date) {
 }
 
 /**
+ * Every worker in the table, ordered by name — the unfiltered pool used by the
+ * Today's Plan / Batch worker pickers. No attendance/presence gate, so a
+ * supervisor can build a team even before attendance is marked.
+ */
+export function fetchAllWorkers() {
+  return supabase
+    .from('workers')
+    .select('id, full_name, designation_id, designations(name)')
+    .order('full_name')
+}
+
+/**
  * Boss feed: all assignments from the last `daysBack` days, used to build
  * each supervisor's team per date. Worker name + designation are resolved
  * separately (callers fetch from the workers table by id).
