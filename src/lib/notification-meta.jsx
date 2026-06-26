@@ -119,7 +119,7 @@ export function getNotifPath(n, role, isFieldManager = false) {
   if (type.startsWith('work_plan')) {
     if (isBoss) return '/boss/work-feed'
     if (isFieldManager) return '/supervisor/work-feed'
-    return '/supervisor/work-plan'
+    return '/supervisor/todays-plan'
   }
 
   // Batch teams submitted — Director / Site Incharge land on the work feed.
@@ -129,11 +129,11 @@ export function getNotifPath(n, role, isFieldManager = false) {
     return '/supervisor'
   }
 
-  // Collaboration request — the tagged supervisor manages it from their work
-  // plan (or the work feed, if they're also a Site Incharge).
+  // Collaboration request — the tagged supervisor manages it from Today's Plan
+  // (or the work feed, if they're also a Site Incharge).
   if (type === 'collaboration_request') {
     if (isFieldManager) return '/supervisor/work-feed'
-    return '/supervisor/work-plan'
+    return '/supervisor/todays-plan'
   }
 
   return isBoss ? '/boss' : '/supervisor'

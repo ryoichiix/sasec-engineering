@@ -19,8 +19,8 @@ const BOSS_TABS = [
 const SUP_TABS = [
   { to: '/supervisor',            label: 'Home',    icon: LayoutDashboard, end: true },
   { to: '/supervisor/attendance', label: 'Attend',  icon: ClipboardCheck },
-  { to: '/supervisor/team',       label: 'Team',    icon: Users },
-  { to: '/supervisor/work-plan',  label: 'Updates', icon: FileText },
+  { to: '/supervisor/todays-plan',   label: 'Plan',    icon: Users },
+  { to: '/supervisor/daily-updates', label: 'Updates', icon: FileText },
   { to: '/supervisor/leave',      label: 'Leave',   icon: CalendarOff },
 ]
 

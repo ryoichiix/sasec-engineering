@@ -87,9 +87,9 @@ export default function SupervisorDashboard() {
 
   const taskList = tasks ? [
     { key: 'attendance', label: 'Mark attendance', desc: 'Record present / absent / half day', icon: ClipboardCheck, to: '/supervisor/attendance', done: tasks.attendance },
-    { key: 'morning',    label: 'Post morning update', desc: "Share today's work plan", icon: FileText, to: '/supervisor/work-plan', done: tasks.morning },
-    { key: 'team',       label: 'Pick your team', desc: 'Select present workers for your crew', icon: Users, to: '/supervisor/team', done: tasks.team },
-    { key: 'evening',    label: 'Submit EOD report', desc: 'Log completed & pending work', icon: FileCheck2, to: '/supervisor/work-plan', done: tasks.evening },
+    { key: 'morning',    label: 'Post morning update', desc: "Share today's work plan", icon: FileText, to: '/supervisor/todays-plan', done: tasks.morning },
+    { key: 'team',       label: 'Pick your team', desc: 'Select present workers for your crew', icon: Users, to: '/supervisor/todays-plan', done: tasks.team },
+    { key: 'evening',    label: 'Submit EOD report', desc: 'Log completed & pending work', icon: FileCheck2, to: '/supervisor/daily-updates', done: tasks.evening },
   ] : []
 
   const doneCount = taskList.filter((t) => t.done).length
@@ -147,7 +147,7 @@ export default function SupervisorDashboard() {
       <div className="bg-white border border-slate-200 rounded-xl shadow-sm p-5 mb-8 stagger" style={{ animationDelay: '220ms' }}>
         <div className="flex items-center justify-between mb-3">
           <h3 className="text-base font-semibold text-[#0F172A] tracking-tight">My team today</h3>
-          <Link to="/supervisor/team" className="text-xs text-[#C0272D] hover:text-[#A01E23] font-semibold flex items-center gap-1">
+          <Link to="/supervisor/todays-plan" className="text-xs text-[#C0272D] hover:text-[#A01E23] font-semibold flex items-center gap-1">
             Edit <ChevronRight className="h-3 w-3" />
           </Link>
         </div>

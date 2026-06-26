@@ -111,7 +111,7 @@ Open <http://localhost:5173>.
 
 ## Work plans flow
 
-1. **Supervisor** opens `/supervisor/work-plan`, picks a date (default today), types into "Morning plan" and clicks Save. A "Posted at 7:42 AM" timestamp appears.
+1. **Supervisor** opens `/supervisor/todays-plan`, picks a date (default today), fills the structured work plan and clicks Save. (Throughout-the-day text/voice updates live on `/supervisor/daily-updates`.)
 2. **Bosses** get a notification ("Aisha Khan posted the morning plan for May 28, 2026.").
 3. Later that day the supervisor returns, types into "Evening update", and clicks Save. Bosses get a second notification.
 4. **Boss** opens `/boss/work-feed` and sees a feed of the last 30 days, grouped by date (newest first). Each date shows every supervisor who posted, with their morning and evening text and post times side by side.
@@ -120,10 +120,10 @@ Open <http://localhost:5173>.
 ## Daily team assignment
 
 1. Workers' attendance is marked for the day (by their **permanent** supervisor on `/supervisor/attendance`, unchanged).
-2. **Supervisor** opens `/supervisor/team` — they see every worker marked Present today (across all permanent crews), with a designation filter dropdown.
+2. **Supervisor** opens `/supervisor/todays-plan` — they see every worker marked Present today (across all permanent crews), with search + a designation filter.
 3. They tick the workers they want for their crew today. Each click immediately writes a `daily_assignments` row.
 4. If a worker is already on another supervisor's team, the row shows an amber **"On Aisha's team"** badge. Ticking them moves them onto the picker's team (last-write-wins via UPSERT).
-5. The supervisor's **/supervisor/work-plan** page shows the picked team as pills above the morning/evening panels.
+5. The supervisor's **/supervisor/todays-plan** page shows the picked team alongside the work-plan form.
 6. **Boss** opens `/boss/assignments` to see every supervisor's daily team for any date, plus an "Unassigned (present but not on any team)" section.
 
 ## Payroll flow

@@ -22,11 +22,11 @@ const SupervisorWeightCalculator = lazy(() => import('./pages/SupervisorWeightCa
 const BossWeightReports = lazy(() => import('./pages/BossWeightReports'))
 import SupervisorLeave from './pages/SupervisorLeave'
 import BossRequests from './pages/BossRequests'
-import SupervisorWorkPlan from './pages/SupervisorWorkPlan'
+import TodaysPlan from './pages/supervisor/TodaysPlan'
 import BossWorkFeed from './pages/BossWorkFeed'
 import BossPayroll from './pages/BossPayroll'
 import BossDesignations from './pages/BossDesignations'
-import SupervisorTeam from './pages/SupervisorTeam'
+import DailyUpdates from './pages/supervisor/DailyUpdates'
 import Approvals from './pages/supervisor/Approvals'
 import SiteInchargeWorkFeed from './pages/supervisor/SiteInchargeWorkFeed'
 import BossAssignments from './pages/BossAssignments'
@@ -275,13 +275,23 @@ export default function App() {
             }
           />
           <Route
-            path="/supervisor/work-plan"
+            path="/supervisor/todays-plan"
             element={
               <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
-                <SupervisorWorkPlan />
+                <TodaysPlan />
               </ProtectedRoute>
             }
           />
+          <Route
+            path="/supervisor/daily-updates"
+            element={
+              <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
+                <DailyUpdates />
+              </ProtectedRoute>
+            }
+          />
+          {/* Old routes kept as redirects so bookmarks / notification links still work */}
+          <Route path="/supervisor/work-plan" element={<Navigate to="/supervisor/todays-plan" replace />} />
           <Route
             path="/supervisor/forms"
             element={
@@ -298,14 +308,7 @@ export default function App() {
               </ProtectedRoute>
             }
           />
-          <Route
-            path="/supervisor/team"
-            element={
-              <ProtectedRoute allowedRoles={[ROLES.SUPERVISOR]}>
-                <SupervisorTeam />
-              </ProtectedRoute>
-            }
-          />
+          <Route path="/supervisor/team" element={<Navigate to="/supervisor/todays-plan" replace />} />
           <Route
             path="/supervisor/weight"
             element={

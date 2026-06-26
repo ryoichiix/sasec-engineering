@@ -508,8 +508,8 @@ function WorkmenSection({ team, teamLoading }) {
       ) : !team?.length ? (
         <p className="text-sm text-gray-500">
           No team assigned yet.{' '}
-          <Link to="/supervisor/team" className="text-[#C0272D] font-medium hover:underline">
-            Go to Today&apos;s Team to pick workers.
+          <Link to="/supervisor/todays-plan" className="text-[#C0272D] font-medium hover:underline">
+            Add workers in Today&apos;s Plan.
           </Link>
         </p>
       ) : (
