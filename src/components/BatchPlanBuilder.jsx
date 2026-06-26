@@ -6,23 +6,9 @@ import { fetchBatchesForSupervisorDate } from '../lib/batches'
 import { fetchVehicles } from '../lib/vehicles'
 import { notifyUser } from '../lib/notifications'
 import BatchTeamList from './BatchTeamList'
+import CollaboratorsCard from './CollaboratorsCard'
 import { formatDate } from '../lib/dates'
-
-// Predefined task chips offered in the batch work plan. Anything the supervisor
-// types in the "Add custom task" box lands outside this set and is shown as a
-// removable chip below the grid.
-const BATCH_TASK_CHIPS = [
-  'Erection of columns', 'Welding of Base Plates', 'Fabrication',
-  'Dismantling', 'Welding', 'Shifting', 'Scrap Shifting',
-  'Loading', 'Painting', 'Inspection', 'Grouting',
-  'Punch Points', 'Attending Punch Points',
-]
-
-const OT_TIMES = [
-  '5:00 PM', '6:00 PM', '7:00 PM', '8:00 PM', '9:00 PM',
-  '10:00 PM', '11:00 PM', '12:00 AM', '1:00 AM', '2:00 AM',
-  '3:00 AM', '4:00 AM', '5:00 AM', '6:00 AM', '7:00 AM', '8:00 AM',
-]
+import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, OT_TIMES } from '../lib/plan-options'
 
 const emptyBatch = () => ({ id: crypto.randomUUID(), name: '', workers: [], location: '', tasks: [] })
 
@@ -318,14 +304,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
               >
                 <option value="">Select project...</option>
-                {[
-                  'SGP - EAST - TOWER HOUSE',
-                  'SGP - WEST - TOWER HOUSE',
-                  'SGP - EAST - GB001',
-                  'SGP - EAST - GB01/A',
-                  'SGP - WEST - GB002',
-                  'SGP - WEST - GB02/A',
-                ].map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                {PROJECT_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                 <option value="__custom__">Other (type below)</option>
               </select>
               {batch.project_description === '__custom__' && (
@@ -348,7 +327,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
               >
                 <option value="">Select location...</option>
-                {['BF#3', 'BF#4', 'BF#5', 'COKE#1', 'MRP', 'SINTER PLANT #3'].map((opt) => (
+                {LOCATION_OPTIONS.map((opt) => (
                   <option key={opt} value={opt}>{opt}</option>
                 ))}
                 <option value="__custom__">Other (type below)</option>
@@ -390,7 +369,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
             <div className="mb-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Tasks *</label>
               <div className="flex flex-wrap gap-1.5 mb-2">
-                {BATCH_TASK_CHIPS.map((chip) => (
+                {TASK_CHIPS.map((chip) => (
                   <button
                     key={chip}
                     type="button"
@@ -439,9 +418,9 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                   Add
                 </button>
               </div>
-              {(batch.tasks || []).some((t) => !BATCH_TASK_CHIPS.includes(t)) && (
+              {(batch.tasks || []).some((t) => !TASK_CHIPS.includes(t)) && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {(batch.tasks || []).filter((t) => !BATCH_TASK_CHIPS.includes(t)).map((t) => (
+                  {(batch.tasks || []).filter((t) => !TASK_CHIPS.includes(t)).map((t) => (
                     <span
                       key={t}
                       className="inline-flex items-center gap-1 text-xs bg-[#0F172A] text-white px-2.5 py-1 rounded-full"
@@ -549,6 +528,9 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
       >
         + Add another batch
       </button>
+
+      {/* Collaboration — applies to the whole day, not per-batch */}
+      <CollaboratorsCard userId={supervisorId} userName={supervisorName} date={date} />
 
       {/* Save all batches */}
       <button
