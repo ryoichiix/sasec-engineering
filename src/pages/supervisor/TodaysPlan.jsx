@@ -794,7 +794,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
             </div>
 
             {/* Worker list */}
-            <div style={{ overflowY: 'auto', flex: 1, padding: '8px 20px' }}>
+            <div style={{ overflowY: 'auto', overflowX: 'hidden', width: '100%', boxSizing: 'border-box', flex: 1, padding: '8px 20px' }}>
               {loading ? (
                 <p style={{ textAlign: 'center', color: '#9ca3af', padding: '32px 0', fontSize: 14 }}>
                   Loading workers…
@@ -826,6 +826,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                         alignItems: 'center',
                         gap: 12,
                         width: '100%',
+                        maxWidth: '100%',
                         padding: '10px 12px',
                         marginBottom: 6,
                         borderRadius: 12,
@@ -835,6 +836,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                         opacity: isOther ? 0.5 : 1,
                         textAlign: 'left',
                         boxSizing: 'border-box',
+                        overflow: 'hidden',
                       }}
                     >
                       {/* Avatar */}
@@ -853,6 +855,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                         <p style={{
                           margin: 0, fontSize: 14, fontWeight: 600,
                           color: isMine ? '#ffffff' : '#111827',
+                          maxWidth: '100%',
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
                           {displayName}
