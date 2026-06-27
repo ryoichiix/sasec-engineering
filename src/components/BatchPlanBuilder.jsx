@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAllWorkers } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
@@ -542,10 +543,10 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
       </button>
 
       {/* ── Worker picker for a batch ─────────────────── */}
-      {pickingForBatch !== null && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setPickingForBatch(null)} />
-          <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
+      {pickingForBatch !== null && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setPickingForBatch(null)} />
+          <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: '#fff', borderRadius: '20px 20px 0 0', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', maxHeight: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">
                 Add workers to Batch {pickingForBatch + 1}
@@ -629,7 +630,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )

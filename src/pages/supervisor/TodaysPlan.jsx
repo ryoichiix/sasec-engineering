@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import DashboardShell from '../../components/DashboardShell'
 import CollaboratorsCard from '../../components/CollaboratorsCard'
 import BatchPlanBuilder from '../../components/BatchPlanBuilder'
@@ -716,10 +717,10 @@ function SinglePlan({ date, user, profile, collabPartner }) {
       </button>
 
       {/* ── WORKER PICKER BOTTOM SHEET ───────────────────────── */}
-      {/* Rebuilt with inline styles only — no Tailwind classes on any element
-          in this tree — to rule out any utility-class/paint interaction. */}
-      {showWorkerPicker && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, overflowX: 'hidden' }}>
+      {/* Rendered via createPortal on document.body so no ancestor CSS
+          (overflow, backdrop-filter, stacking context) can affect it. */}
+      {showWorkerPicker && createPortal(
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
           {/* Backdrop */}
           <div
             style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }}
@@ -728,10 +729,8 @@ function SinglePlan({ date, user, profile, collabPartner }) {
 
           {/* Sheet */}
           <div style={{
-            position: 'fixed',
+            position: 'absolute',
             bottom: 0, left: 0, right: 0,
-            width: '100%',
-            maxWidth: '100vw',
             background: '#ffffff',
             borderRadius: '20px 20px 0 0',
             maxHeight: '75vh',
@@ -739,7 +738,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
             flexDirection: 'column',
             boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
             boxSizing: 'border-box',
-            overflowX: 'hidden',
+            overflow: 'hidden',
           }}>
 
             {/* Header */}
@@ -895,7 +894,8 @@ function SinglePlan({ date, user, profile, collabPartner }) {
               </button>
             </div>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   )
