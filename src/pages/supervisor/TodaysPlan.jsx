@@ -732,8 +732,8 @@ function SinglePlan({ date, user, profile }) {
 
       {/* ── WORKER PICKER BOTTOM SHEET ───────────────────────── */}
       {showWorkerPicker && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div className="flex-1 bg-black/40" onClick={() => setShowWorkerPicker(false)} />
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setShowWorkerPicker(false)} />
           <div
             className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl"
             style={{ maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}
@@ -792,14 +792,17 @@ function SinglePlan({ date, user, profile }) {
                   const isOther = asn && !isMine
                   const busy = !!pending[worker.id]
                   return (
-                    <div
+                    <button
                       key={worker.id}
+                      type="button"
                       onClick={() => {
+                        console.log('[picker] tapped:', { id: worker.id, full_name: worker.full_name, isMine, isOther, busy })
                         if (isOther || busy) return
                         if (isMine) release(worker)
                         else claim(worker)
                       }}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all ${
+                      disabled={isOther || busy}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
                         isMine
                           ? 'bg-[#0F172A] border-[#0F172A] cursor-pointer'
                           : isOther
@@ -823,7 +826,7 @@ function SinglePlan({ date, user, profile }) {
                       {busy
                         ? <span className={`text-xs flex-shrink-0 ${isMine ? 'text-white' : 'text-gray-400'}`}>…</span>
                         : isMine && <span className="text-white text-base flex-shrink-0">✓</span>}
-                    </div>
+                    </button>
                   )
                 })
               )}

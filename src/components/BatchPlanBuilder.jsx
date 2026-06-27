@@ -543,8 +543,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
 
       {/* ── Worker picker for a batch ─────────────────── */}
       {pickingForBatch !== null && (
-        <div className="fixed inset-0 z-50 flex items-end">
-          <div className="flex-1 bg-black/40" onClick={() => setPickingForBatch(null)} />
+        <div className="fixed inset-0 z-50">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setPickingForBatch(null)} />
           <div className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl max-h-[70vh] flex flex-col">
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">
@@ -571,9 +571,11 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                     (b, i) => i !== pickingForBatch && b.workers.some((w) => w.id === worker.id)
                   )
                   return (
-                    <div
+                    <button
                       key={worker.id}
+                      type="button"
                       onClick={() => {
+                        console.log('[batch picker] tapped:', { id: worker.id, full_name: worker.full_name, alreadyInBatch, inOtherBatch })
                         if (inOtherBatch) return
                         if (alreadyInBatch) {
                           removeWorkerFromBatch(pickingForBatch, worker.id)
@@ -584,7 +586,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                           ])
                         }
                       }}
-                      className={`flex items-center gap-3 p-3 rounded-xl border transition-all cursor-pointer ${
+                      disabled={inOtherBatch}
+                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         alreadyInBatch
                           ? 'bg-[#0F172A] border-[#0F172A]'
                           : inOtherBatch
@@ -612,7 +615,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                         </p>
                       </div>
                       {alreadyInBatch && <span className="text-white text-sm">✓</span>}
-                    </div>
+                    </button>
                   )
                 })
               )}
