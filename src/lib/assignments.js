@@ -50,16 +50,26 @@ export function fetchAssignmentsForDate(date) {
 /**
  * Every worker in the table, ordered by name — the unfiltered pool used by the
  * Today's Plan / Batch worker pickers. No attendance/presence gate, so a
- * supervisor can build a team even before attendance is marked. No join to
- * `designations` — reads the denormalised `designation_name` column directly
- * so a relationship/RLS hiccup on the designations table can't blank the pool.
+ * supervisor can build a team even before attendance is marked.
+ *
+ * Uses select('*') deliberately: selecting an explicit column that doesn't
+ * exist on the live table makes PostgREST reject the WHOLE request (data:null),
+ * which is the classic "picker shows nothing" failure. '*' can never fail on a
+ * column name, so if rows exist they always come back.
  */
 export async function fetchAllWorkers() {
   const { data, error } = await supabase
     .from('workers')
-    .select('id, full_name, designation_name, wage_type')
+    .select('*')
     .order('full_name')
-  console.log('[fetchAllWorkers] workers:', data?.length, error)
+  // Diagnostic: confirms the query ran, how many rows came back, and the exact
+  // field names available (so the UI binds to the right ones).
+  console.log(
+    '[fetchAllWorkers] count:', data?.length ?? 0,
+    '| error:', error,
+    '| fields:', data?.[0] ? Object.keys(data[0]) : '(no rows)',
+    '| sample:', data?.[0],
+  )
   return { data, error }
 }
 

@@ -164,6 +164,9 @@ function SinglePlan({ date, user, profile }) {
   const [saved, setSaved] = useState(false)
   const [formError, setFormError] = useState(null)
 
+  // Partner's plan, shown when this user has an accepted collaboration today.
+  const [collabPartner, setCollabPartner] = useState(null)
+
   // Fleet for equipment dropdowns (once).
   useEffect(() => {
     let active = true
@@ -199,6 +202,34 @@ function SinglePlan({ date, user, profile }) {
     })
     return () => { active = false }
   }, [myId, date, profile?.full_name])
+
+  // If there's an ACCEPTED collaboration for this date, load the partner's
+  // saved work plan so it surfaces here (regular supervisors have no Work Feed).
+  // Reading the partner's work_plans row requires the RLS policy added in
+  // migration 47-collab-work-plan-read.sql.
+  useEffect(() => {
+    if (!myId) return
+    let active = true
+    ;(async () => {
+      const { data: collabs } = await supabase
+        .from('work_plan_collaborations')
+        .select('initiator_id, collaborator_id, status')
+        .or(`initiator_id.eq.${myId},collaborator_id.eq.${myId}`)
+        .eq('date', date)
+        .eq('status', 'accepted')
+      if (!active) return
+      const collab = collabs?.[0]
+      if (!collab) { setCollabPartner(null); return }
+      const partnerId = collab.initiator_id === myId ? collab.collaborator_id : collab.initiator_id
+      const [{ data: prof }, { data: report }] = await Promise.all([
+        supabase.from('profiles').select('full_name').eq('id', partnerId).maybeSingle(),
+        fetchSiteReport(partnerId, date),
+      ])
+      if (!active) return
+      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null })
+    })()
+    return () => { active = false }
+  }, [myId, date])
 
   const getVehiclesByType = (keyword) =>
     vehicles.filter((v) => v.vehicle_type?.toLowerCase().includes(keyword.toLowerCase()))
@@ -342,7 +373,10 @@ function SinglePlan({ date, user, profile }) {
             <p className="text-xs text-gray-400 mt-0.5">{myTeam.length} worker{myTeam.length === 1 ? '' : 's'} selected</p>
           </div>
           <button
-            onClick={() => setShowWorkerPicker(true)}
+            onClick={() => {
+              console.log('[picker] opened — workers:', workers.length, '| pickerList:', pickerList.length)
+              setShowWorkerPicker(true)
+            }}
             className="px-4 py-2 bg-[#0F172A] text-white text-sm font-semibold rounded-xl hover:bg-gray-800 transition-colors"
           >
             + Add workers
@@ -629,6 +663,61 @@ function SinglePlan({ date, user, profile }) {
       {/* ── COLLABORATION ────────────────────────────────────── */}
       <CollaboratorsCard userId={myId} userName={profile?.full_name} date={date} />
 
+      {/* ── COLLABORATING PARTNER'S PLAN (accepted only) ─────── */}
+      {collabPartner?.report && (
+        <div className="bg-purple-50 rounded-2xl border border-purple-200 p-5">
+          <p className="text-xs font-semibold uppercase tracking-widest text-purple-600 mb-3">
+            🤝 Collaborating with {collabPartner.name}
+          </p>
+          <div className="space-y-2">
+            {collabPartner.report.project_description && (
+              <div className="flex justify-between text-sm gap-4">
+                <span className="text-gray-500 flex-shrink-0">Project</span>
+                <span className="font-medium text-gray-900 text-right">{collabPartner.report.project_description}</span>
+              </div>
+            )}
+            {collabPartner.report.project_location && (
+              <div className="flex justify-between text-sm gap-4">
+                <span className="text-gray-500 flex-shrink-0">Location</span>
+                <span className="font-medium text-gray-900 text-right">{collabPartner.report.project_location}</span>
+              </div>
+            )}
+            {(collabPartner.report.work_from || collabPartner.report.work_to) && (
+              <div className="flex justify-between text-sm gap-4">
+                <span className="text-gray-500 flex-shrink-0">Timing</span>
+                <span className="font-medium text-gray-900 text-right">
+                  {collabPartner.report.work_from || '—'} – {collabPartner.report.work_to || '—'}
+                </span>
+              </div>
+            )}
+            {collabPartner.report.tasks?.length > 0 && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Tasks</p>
+                <div className="flex flex-wrap gap-1">
+                  {collabPartner.report.tasks.map((t) => (
+                    <span key={t} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{t}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+            {['crane', 'hydra', 'trawler', 'cherry_picker'].some((k) => collabPartner.report.equipment?.[k]) && (
+              <div>
+                <p className="text-xs text-gray-500 mb-1">Equipment</p>
+                <div className="flex flex-wrap gap-1">
+                  {['crane', 'hydra', 'trawler', 'cherry_picker'].map((k) =>
+                    collabPartner.report.equipment?.[k] ? (
+                      <span key={k} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
+                        {collabPartner.report.equipment[k]}
+                      </span>
+                    ) : null
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── SAVE ─────────────────────────────────────────────── */}
       {formError && (
         <div className="px-4 py-3 rounded-xl bg-red-50 border border-red-200 text-sm text-red-700">{formError}</div>
@@ -697,7 +786,7 @@ function SinglePlan({ date, user, profile }) {
                 </p>
               ) : (
                 pickerList.map((worker) => {
-                  const displayName = worker.full_name || 'Unnamed worker'
+                  const displayName = String(worker.full_name || worker.name || 'Worker')
                   const asn = assignmentByWorker.get(worker.id)
                   const isMine = asn?.supervisor_id === myId
                   const isOther = asn && !isMine
