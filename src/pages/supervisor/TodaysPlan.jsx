@@ -716,39 +716,73 @@ function SinglePlan({ date, user, profile, collabPartner }) {
       </button>
 
       {/* ── WORKER PICKER BOTTOM SHEET ───────────────────────── */}
+      {/* Rebuilt with inline styles only — no Tailwind classes on any element
+          in this tree — to rule out any utility-class/paint interaction. */}
       {showWorkerPicker && (
-        <div className="fixed inset-0 z-50">
-          <div className="absolute inset-0 bg-black/40" onClick={() => setShowWorkerPicker(false)} />
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
+          {/* Backdrop */}
           <div
-            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl overflow-x-hidden"
-            style={{ maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}
-          >
+            style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }}
+            onClick={() => setShowWorkerPicker(false)}
+          />
+
+          {/* Sheet */}
+          <div style={{
+            position: 'absolute',
+            bottom: 0, left: 0, right: 0,
+            background: '#ffffff',
+            borderRadius: '20px 20px 0 0',
+            maxHeight: '75vh',
+            display: 'flex',
+            flexDirection: 'column',
+            boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
+            overflow: 'hidden',
+          }}>
+
             {/* Header */}
-            <div className="px-5 py-4 border-b border-gray-100 flex-shrink-0">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-semibold text-gray-900">Add workers</h3>
-                <button onClick={() => setShowWorkerPicker(false)} className="text-gray-400 text-xl">✕</button>
+            <div style={{ padding: '16px 20px', borderBottom: '1px solid #f0f0f0', flexShrink: 0 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+                <span style={{ fontWeight: 700, fontSize: 16, color: '#111827' }}>Add workers</span>
+                <button
+                  type="button"
+                  onClick={() => setShowWorkerPicker(false)}
+                  style={{ background: 'none', border: 'none', fontSize: 20, color: '#9ca3af', cursor: 'pointer' }}
+                >
+                  ✕
+                </button>
               </div>
+              {/* Search */}
               <input
                 type="text"
                 placeholder="Search by name..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#C0272D] mb-2"
+                style={{
+                  width: '100%', padding: '8px 12px',
+                  border: '1px solid #e5e7eb', borderRadius: 12,
+                  fontSize: 14, color: '#111827', outline: 'none',
+                  boxSizing: 'border-box', marginBottom: 8,
+                }}
               />
-              <div className="flex gap-2 overflow-x-auto pb-1">
+              {/* Designation filter + Clear */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
                 <select
                   value={filterDesignation}
                   onChange={(e) => setFilterDesignation(e.target.value)}
-                  className="border border-gray-200 rounded-lg px-2 py-1.5 text-xs text-gray-600 outline-none flex-shrink-0"
+                  style={{
+                    padding: '6px 10px', border: '1px solid #e5e7eb',
+                    borderRadius: 8, fontSize: 13, color: '#374151',
+                    background: '#fff', outline: 'none', flexShrink: 0,
+                  }}
                 >
                   <option value="">All designations</option>
                   {designations.map((d) => <option key={d} value={d}>{d}</option>)}
                 </select>
                 {(searchQuery || filterDesignation) && (
                   <button
+                    type="button"
                     onClick={() => { setSearchQuery(''); setFilterDesignation('') }}
-                    className="text-xs text-gray-400 hover:text-gray-600 flex-shrink-0 px-2"
+                    style={{ background: 'none', border: 'none', fontSize: 12, color: '#9ca3af', cursor: 'pointer', flexShrink: 0, padding: '0 8px' }}
                   >
                     Clear
                   </button>
@@ -757,72 +791,99 @@ function SinglePlan({ date, user, profile, collabPartner }) {
             </div>
 
             {/* Worker list */}
-            <div className="overflow-y-auto flex-1 px-5 py-3 space-y-2">
+            <div style={{ overflowY: 'auto', flex: 1, padding: '8px 20px' }}>
               {loading ? (
-                <div className="flex flex-col items-center justify-center py-10 gap-3">
-                  <span className="h-6 w-6 rounded-full border-2 border-gray-200 border-t-[#C0272D] animate-spin" />
-                  <p className="text-sm text-gray-400">Loading workers…</p>
-                </div>
+                <p style={{ textAlign: 'center', color: '#9ca3af', padding: '32px 0', fontSize: 14 }}>
+                  Loading workers…
+                </p>
               ) : pickerList.length === 0 ? (
-                <p className="text-center text-sm text-gray-400 py-10">
-                  {workers.length === 0
-                    ? 'No workers found.'
-                    : 'No workers match your search.'}
+                <p style={{ textAlign: 'center', color: '#9ca3af', padding: '32px 0', fontSize: 14 }}>
+                  {workers.length === 0 ? 'No workers found.' : 'No workers match your search.'}
                 </p>
               ) : (
                 pickerList.map((worker) => {
-                  const displayName = String(worker.full_name || worker.name || 'Worker')
                   const asn = assignmentByWorker.get(worker.id)
                   const isMine = asn?.supervisor_id === myId
-                  const isOther = asn && !isMine
+                  const isOther = !!asn && !isMine
                   const busy = !!pending[worker.id]
+                  const displayName = String(worker.full_name || worker.name || 'Unknown')
                   return (
                     <button
                       key={worker.id}
                       type="button"
+                      disabled={isOther || busy}
                       onClick={() => {
-                        console.log('[picker] tapped:', { id: worker.id, full_name: worker.full_name, isMine, isOther, busy })
+                        console.log('[picker] tapped:', displayName)
                         if (isOther || busy) return
                         if (isMine) release(worker)
                         else claim(worker)
                       }}
-                      disabled={isOther || busy}
-                      className={`appearance-none w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
-                        isMine
-                          ? 'bg-[#0F172A] border-[#0F172A] cursor-pointer'
-                          : isOther
-                          ? 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
-                          : 'bg-white border-gray-100 hover:border-gray-300 cursor-pointer'
-                      }`}
+                      style={{
+                        display: 'flex',
+                        alignItems: 'center',
+                        gap: 12,
+                        width: '100%',
+                        padding: '10px 12px',
+                        marginBottom: 6,
+                        borderRadius: 12,
+                        border: isMine ? '1px solid #0f172a' : '1px solid #f3f4f6',
+                        background: isMine ? '#0f172a' : isOther ? '#f9fafb' : '#ffffff',
+                        cursor: isOther || busy ? 'not-allowed' : 'pointer',
+                        opacity: isOther ? 0.5 : 1,
+                        textAlign: 'left',
+                        boxSizing: 'border-box',
+                      }}
                     >
-                      <div className={`w-9 h-9 rounded-full flex items-center justify-center text-sm font-bold flex-shrink-0 ${
-                        isMine ? 'bg-white text-[#0F172A]' : 'bg-gray-100 text-gray-600'
-                      }`}>
+                      {/* Avatar */}
+                      <div style={{
+                        width: 36, height: 36, borderRadius: '50%',
+                        background: isMine ? '#ffffff' : '#e5e7eb',
+                        color: isMine ? '#0f172a' : '#374151',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontWeight: 700, fontSize: 14, flexShrink: 0,
+                      }}>
                         {displayName.charAt(0)}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-sm font-semibold truncate ${isMine ? 'text-white' : 'text-gray-900'}`}>
+
+                      {/* Name + designation */}
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <p style={{
+                          margin: 0, fontSize: 14, fontWeight: 600,
+                          color: isMine ? '#ffffff' : '#111827',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
                           {displayName}
                         </p>
-                        <p className={`text-xs truncate ${isMine ? 'text-gray-300' : 'text-gray-400'}`}>
-                          {worker.designation_name}{isOther ? ' · On another team' : ''}
+                        <p style={{
+                          margin: 0, fontSize: 12,
+                          color: isMine ? '#d1d5db' : '#6b7280',
+                          whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                        }}>
+                          {(worker.designation_name || worker.designation || '')}{isOther ? ' · On another team' : ''}
                         </p>
                       </div>
+
+                      {/* Status */}
                       {busy
-                        ? <span className={`text-xs flex-shrink-0 ${isMine ? 'text-white' : 'text-gray-400'}`}>…</span>
-                        : isMine && <span className="text-white text-base flex-shrink-0">✓</span>}
+                        ? <span style={{ color: isMine ? '#ffffff' : '#9ca3af', fontSize: 12, flexShrink: 0 }}>…</span>
+                        : isMine && <span style={{ color: '#ffffff', fontSize: 16, flexShrink: 0 }}>✓</span>}
                     </button>
                   )
                 })
               )}
             </div>
 
-            {/* Done button */}
-            <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0 bg-white">
+            {/* Footer */}
+            <div style={{ padding: '12px 20px', borderTop: '1px solid #f0f0f0', flexShrink: 0, background: '#ffffff' }}>
               <button
                 type="button"
                 onClick={() => setShowWorkerPicker(false)}
-                className="w-full bg-[#0F172A] text-white font-semibold py-3 rounded-xl text-sm"
+                style={{
+                  width: '100%', padding: '12px',
+                  background: '#0f172a', color: '#ffffff',
+                  border: 'none', borderRadius: 12,
+                  fontWeight: 600, fontSize: 14, cursor: 'pointer',
+                }}
               >
                 Done — {myTeam.length} worker{myTeam.length === 1 ? '' : 's'} selected
               </button>
