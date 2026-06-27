@@ -21,6 +21,36 @@ export default function TodaysPlan() {
   const { user, profile } = useAuth()
   const [date, setDate] = useState(todayLocal())
   const [batchMode, setBatchMode] = useState(false)
+  const [collabPartner, setCollabPartner] = useState(null) // { name, report } | null
+
+  // Detect an ACCEPTED collaboration for this date and load the partner's saved
+  // plan. Lifted to the parent so the banner can render above the Batch toggle
+  // and the partner's plan can pre-fill the single-plan form below. Reading the
+  // partner's work_plans row requires migration 47-collab-work-plan-read.sql.
+  useEffect(() => {
+    const myId = user?.id
+    if (!myId) return
+    let active = true
+    ;(async () => {
+      const { data: collabs } = await supabase
+        .from('work_plan_collaborations')
+        .select('initiator_id, collaborator_id, status')
+        .or(`initiator_id.eq.${myId},collaborator_id.eq.${myId}`)
+        .eq('date', date)
+        .eq('status', 'accepted')
+      if (!active) return
+      const collab = collabs?.[0]
+      if (!collab) { setCollabPartner(null); return }
+      const partnerId = collab.initiator_id === myId ? collab.collaborator_id : collab.initiator_id
+      const [{ data: prof }, { data: report }] = await Promise.all([
+        supabase.from('profiles').select('full_name').eq('id', partnerId).maybeSingle(),
+        fetchSiteReport(partnerId, date),
+      ])
+      if (!active) return
+      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null })
+    })()
+    return () => { active = false }
+  }, [user?.id, date])
 
   return (
     <DashboardShell title="Today's plan">
@@ -42,6 +72,21 @@ export default function TodaysPlan() {
             className="text-sm text-gray-700 outline-none bg-transparent"
           />
         </div>
+
+        {/* Collaboration banner */}
+        {collabPartner && (
+          <div className="bg-purple-50 rounded-2xl border border-purple-200 px-5 py-4 mb-4 flex items-center gap-3">
+            <span className="text-2xl">🤝</span>
+            <div>
+              <p className="font-semibold text-purple-900 text-sm">
+                Collaborating with {collabPartner.name}
+              </p>
+              <p className="text-xs text-purple-600 mt-0.5">
+                Their plan details have been pre-filled below. You can edit if needed.
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* Batch mode toggle */}
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 mb-4 flex items-center justify-between">
@@ -75,7 +120,7 @@ export default function TodaysPlan() {
             supervisorName={profile?.full_name}
           />
         ) : (
-          <SinglePlan key={date} date={date} user={user} profile={profile} />
+          <SinglePlan key={date} date={date} user={user} profile={profile} collabPartner={collabPartner} />
         )}
       </div>
     </DashboardShell>
@@ -84,7 +129,7 @@ export default function TodaysPlan() {
 
 // ── Single-team mode: one unified form ───────────────────────────────────────
 // Team → Project Details → Tasks → Equipment → OT → Collaboration → Save.
-function SinglePlan({ date, user, profile }) {
+function SinglePlan({ date, user, profile, collabPartner }) {
   const myId = user?.id
 
   // ── Team (daily_assignments) ───────────────────────────────
@@ -164,9 +209,6 @@ function SinglePlan({ date, user, profile }) {
   const [saved, setSaved] = useState(false)
   const [formError, setFormError] = useState(null)
 
-  // Partner's plan, shown when this user has an accepted collaboration today.
-  const [collabPartner, setCollabPartner] = useState(null)
-
   // Fleet for equipment dropdowns (once).
   useEffect(() => {
     let active = true
@@ -174,20 +216,25 @@ function SinglePlan({ date, user, profile }) {
     return () => { active = false }
   }, [])
 
-  // Prefill from any saved plan for this date. The parent remounts with
-  // key={date}, so each date starts from fresh defaults.
+  // Prefill the form: the user's OWN saved plan wins; otherwise, if there's an
+  // accepted collaboration, auto-fill from the partner's plan (Change 2). The
+  // parent remounts with key={date}, so prefilledRef resets per date; the guard
+  // prevents a late collabPartner prop update from clobbering edits in progress.
+  const prefilledRef = useRef(false)
   useEffect(() => {
-    if (!myId) return
+    if (!myId || prefilledRef.current) return
     let active = true
-    fetchSiteReport(myId, date).then(({ data }) => {
-      if (!active || !data) return
+    // Fill shared plan fields from a parsed work-plan report. `withPermit` is
+    // false for partner auto-fill — the permit holder is always the current
+    // supervisor, not the partner.
+    const apply = (data, { withPermit }) => {
       const proj = data.project_description ?? ''
       if (PROJECT_OPTIONS.includes(proj)) setProjectDescription(proj)
       else if (proj) { setProjectDescription('__custom__'); setCustomProject(proj) }
       const loc = data.project_location ?? ''
       if (LOCATION_OPTIONS.includes(loc)) setProjectLocation(loc)
       else if (loc) { setProjectLocation('__custom__'); setCustomLocation(loc) }
-      setPermitHolder(data.permit_holder ?? profile?.full_name ?? '')
+      if (withPermit) setPermitHolder(data.permit_holder ?? profile?.full_name ?? '')
       setWorkFrom(data.work_from ?? '09:00')
       setWorkTo(data.work_to ?? '18:00')
       setOvertime(!!data.overtime)
@@ -199,37 +246,20 @@ function SinglePlan({ date, user, profile }) {
       setTrawler(data.equipment?.trawler ?? '')
       setTrawlerNotRequired(!!data.equipment?.trawler_not_required)
       setTasks(Array.isArray(data.tasks) ? data.tasks : [])
+    }
+    fetchSiteReport(myId, date).then(({ data: own }) => {
+      if (!active) return
+      if (own) {
+        prefilledRef.current = true
+        apply(own, { withPermit: true })
+      } else if (collabPartner?.report) {
+        // No own plan yet — pre-fill from the collaboration partner's plan.
+        prefilledRef.current = true
+        apply(collabPartner.report, { withPermit: false })
+      }
     })
     return () => { active = false }
-  }, [myId, date, profile?.full_name])
-
-  // If there's an ACCEPTED collaboration for this date, load the partner's
-  // saved work plan so it surfaces here (regular supervisors have no Work Feed).
-  // Reading the partner's work_plans row requires the RLS policy added in
-  // migration 47-collab-work-plan-read.sql.
-  useEffect(() => {
-    if (!myId) return
-    let active = true
-    ;(async () => {
-      const { data: collabs } = await supabase
-        .from('work_plan_collaborations')
-        .select('initiator_id, collaborator_id, status')
-        .or(`initiator_id.eq.${myId},collaborator_id.eq.${myId}`)
-        .eq('date', date)
-        .eq('status', 'accepted')
-      if (!active) return
-      const collab = collabs?.[0]
-      if (!collab) { setCollabPartner(null); return }
-      const partnerId = collab.initiator_id === myId ? collab.collaborator_id : collab.initiator_id
-      const [{ data: prof }, { data: report }] = await Promise.all([
-        supabase.from('profiles').select('full_name').eq('id', partnerId).maybeSingle(),
-        fetchSiteReport(partnerId, date),
-      ])
-      if (!active) return
-      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null })
-    })()
-    return () => { active = false }
-  }, [myId, date])
+  }, [myId, date, profile?.full_name, collabPartner])
 
   const getVehiclesByType = (keyword) =>
     vehicles.filter((v) => v.vehicle_type?.toLowerCase().includes(keyword.toLowerCase()))
@@ -662,61 +692,6 @@ function SinglePlan({ date, user, profile }) {
 
       {/* ── COLLABORATION ────────────────────────────────────── */}
       <CollaboratorsCard userId={myId} userName={profile?.full_name} date={date} />
-
-      {/* ── COLLABORATING PARTNER'S PLAN (accepted only) ─────── */}
-      {collabPartner?.report && (
-        <div className="bg-purple-50 rounded-2xl border border-purple-200 p-5">
-          <p className="text-xs font-semibold uppercase tracking-widest text-purple-600 mb-3">
-            🤝 Collaborating with {collabPartner.name}
-          </p>
-          <div className="space-y-2">
-            {collabPartner.report.project_description && (
-              <div className="flex justify-between text-sm gap-4">
-                <span className="text-gray-500 flex-shrink-0">Project</span>
-                <span className="font-medium text-gray-900 text-right">{collabPartner.report.project_description}</span>
-              </div>
-            )}
-            {collabPartner.report.project_location && (
-              <div className="flex justify-between text-sm gap-4">
-                <span className="text-gray-500 flex-shrink-0">Location</span>
-                <span className="font-medium text-gray-900 text-right">{collabPartner.report.project_location}</span>
-              </div>
-            )}
-            {(collabPartner.report.work_from || collabPartner.report.work_to) && (
-              <div className="flex justify-between text-sm gap-4">
-                <span className="text-gray-500 flex-shrink-0">Timing</span>
-                <span className="font-medium text-gray-900 text-right">
-                  {collabPartner.report.work_from || '—'} – {collabPartner.report.work_to || '—'}
-                </span>
-              </div>
-            )}
-            {collabPartner.report.tasks?.length > 0 && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Tasks</p>
-                <div className="flex flex-wrap gap-1">
-                  {collabPartner.report.tasks.map((t) => (
-                    <span key={t} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">{t}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-            {['crane', 'hydra', 'trawler', 'cherry_picker'].some((k) => collabPartner.report.equipment?.[k]) && (
-              <div>
-                <p className="text-xs text-gray-500 mb-1">Equipment</p>
-                <div className="flex flex-wrap gap-1">
-                  {['crane', 'hydra', 'trawler', 'cherry_picker'].map((k) =>
-                    collabPartner.report.equipment?.[k] ? (
-                      <span key={k} className="text-xs bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full">
-                        {collabPartner.report.equipment[k]}
-                      </span>
-                    ) : null
-                  )}
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* ── SAVE ─────────────────────────────────────────────── */}
       {formError && (
