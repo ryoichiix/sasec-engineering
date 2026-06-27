@@ -114,8 +114,6 @@ function SinglePlan({ date, user, profile }) {
         setError((workersRes.error || assignRes.error).message)
       } else {
         setError(null)
-        // Debug: confirm the worker pool actually loads and shows the field names.
-        console.log('[TodaysPlan] worker pool loaded:', workersRes.data?.length ?? 0, workersRes.data)
         setWorkers(workersRes.data || [])
         setAssignments(assignRes.data || [])
       }
@@ -220,7 +218,7 @@ function SinglePlan({ date, user, profile }) {
   )
 
   const designations = useMemo(
-    () => [...new Set(workers.map((w) => w.designations?.name).filter(Boolean))].sort(),
+    () => [...new Set(workers.map((w) => w.designation_name).filter(Boolean))].sort(),
     [workers]
   )
 
@@ -229,7 +227,7 @@ function SinglePlan({ date, user, profile }) {
     return workers
       .filter((w) => !isDirector(w))
       .filter((w) => !q || (w.full_name || '').toLowerCase().includes(q))
-      .filter((w) => !filterDesignation || w.designations?.name === filterDesignation)
+      .filter((w) => !filterDesignation || w.designation_name === filterDesignation)
   }, [workers, searchQuery, filterDesignation])
 
   // ── Team actions ───────────────────────────────────────────
@@ -364,7 +362,7 @@ function SinglePlan({ date, user, profile }) {
                   </div>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{worker.full_name || 'Unnamed worker'}</p>
-                    <p className="text-xs text-gray-400">{worker.designations?.name}</p>
+                    <p className="text-xs text-gray-400">{worker.designation_name}</p>
                   </div>
                   <input
                     type="text"
@@ -730,7 +728,7 @@ function SinglePlan({ date, user, profile }) {
                           {displayName}
                         </p>
                         <p className={`text-xs truncate ${isMine ? 'text-gray-300' : 'text-gray-400'}`}>
-                          {worker.designations?.name}{isOther ? ' · On another team' : ''}
+                          {worker.designation_name}{isOther ? ' · On another team' : ''}
                         </p>
                       </div>
                       {busy

@@ -50,13 +50,17 @@ export function fetchAssignmentsForDate(date) {
 /**
  * Every worker in the table, ordered by name — the unfiltered pool used by the
  * Today's Plan / Batch worker pickers. No attendance/presence gate, so a
- * supervisor can build a team even before attendance is marked.
+ * supervisor can build a team even before attendance is marked. No join to
+ * `designations` — reads the denormalised `designation_name` column directly
+ * so a relationship/RLS hiccup on the designations table can't blank the pool.
  */
-export function fetchAllWorkers() {
-  return supabase
+export async function fetchAllWorkers() {
+  const { data, error } = await supabase
     .from('workers')
-    .select('id, full_name, designation_id, designations(name)')
+    .select('id, full_name, designation_name, wage_type')
     .order('full_name')
+  console.log('[fetchAllWorkers] workers:', data?.length, error)
+  return { data, error }
 }
 
 /**

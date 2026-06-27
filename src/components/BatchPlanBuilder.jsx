@@ -265,7 +265,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                       <p className="text-sm font-medium text-gray-900 truncate">
                         {worker.full_name || 'Unnamed worker'}
                       </p>
-                      <p className="text-xs text-gray-400">{worker.designations?.name}</p>
+                      <p className="text-xs text-gray-400">{worker.designation_name}</p>
                     </div>
                     <button
                       onClick={() => removeWorkerFromBatch(batchIdx, worker.id)}
@@ -608,7 +608,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                           {displayName}
                         </p>
                         <p className={`text-xs ${alreadyInBatch ? 'text-gray-300' : 'text-gray-400'}`}>
-                          {worker.designations?.name} {inOtherBatch ? '· In another batch' : ''}
+                          {worker.designation_name} {inOtherBatch ? '· In another batch' : ''}
                         </p>
                       </div>
                       {alreadyInBatch && <span className="text-white text-sm">✓</span>}

@@ -72,7 +72,7 @@ export default function NotificationBell() {
     e.stopPropagation()
     await respondToCollaboration({ notification: n, userId: user.id, userName: profile?.full_name, status })
     if (!n.is_read) {
-      markNotificationRead(n.id)
+      await markNotificationRead(n.id)
       setNotifications((prev) => prev.map((it) => (it.id === n.id ? { ...it, is_read: true } : it)))
       setUnread((prev) => Math.max(0, prev - 1))
     }
@@ -170,7 +170,10 @@ export default function NotificationBell() {
                           {toIST(n.created_at)}
                         </p>
 
-                        {/* Collaboration request — accept / decline inline */}
+                        {/* Collaboration request — accept / decline inline.
+                            Gate on is_read (not just local respondedIds) so the
+                            buttons stay hidden after a remount/refresh too, once
+                            the notification has actually been marked read. */}
                         {n.type === 'collaboration_request' && (
                           respondedIds[n.id] ? (
                             <p className={`mt-2 text-xs font-semibold ${
@@ -178,7 +181,7 @@ export default function NotificationBell() {
                             }`}>
                               {respondedIds[n.id] === 'accepted' ? '🤝 Accepted' : 'Declined'}
                             </p>
-                          ) : (
+                          ) : !n.is_read ? (
                             <div className="flex gap-2 mt-2">
                               <button
                                 onClick={(e) => handleCollabResponse(e, n, 'accepted')}
@@ -193,7 +196,7 @@ export default function NotificationBell() {
                                 Decline
                               </button>
                             </div>
-                          )
+                          ) : null
                         )}
                       </div>
                     </div>
