@@ -420,14 +420,19 @@ function SinglePlan({ date, user, profile, collabPartner }) {
               const edit = taskEdits[asn?.id]
               const taskValue = edit?.value ?? asn?.task_assigned ?? ''
               return (
-                <div key={worker.id} className="flex items-center gap-3 py-2 border-b border-gray-50 last:border-0">
+                <div key={worker.id} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
+                  {/* Avatar */}
                   <div className="w-8 h-8 rounded-full bg-[#0F172A] text-white flex items-center justify-center text-xs font-bold flex-shrink-0">
                     {(worker.full_name || '?').charAt(0)}
                   </div>
-                  <div className="flex-1 min-w-0">
+
+                  {/* Name + designation */}
+                  <div className="w-28 flex-shrink-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{worker.full_name || 'Unnamed worker'}</p>
-                    <p className="text-xs text-gray-400">{worker.designation_name}</p>
+                    <p className="text-xs text-gray-400 truncate">{worker.designation_name}</p>
                   </div>
+
+                  {/* Task input — takes all remaining space */}
                   <input
                     type="text"
                     placeholder="Task (optional)"
@@ -438,13 +443,18 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                     onBlur={() => {
                       if (asn && taskValue !== (asn.task_assigned ?? '')) saveWorkerTask(asn.id, taskValue)
                     }}
-                    className="w-32 text-xs border border-gray-200 rounded-lg px-2 py-1.5 outline-none focus:ring-1 focus:ring-[#C0272D]"
+                    className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[#C0272D] bg-gray-50"
                   />
-                  <span className="w-3 text-xs text-[#C0272D]">{edit?.saving ? '…' : edit?.saved ? '✓' : ''}</span>
+
+                  {/* Saved indicator */}
+                  <span className="w-3 text-xs text-[#C0272D] flex-shrink-0">{edit?.saving ? '…' : edit?.saved ? '✓' : ''}</span>
+
+                  {/* Remove button */}
                   <button
+                    type="button"
                     onClick={() => release(worker)}
                     disabled={!!pending[worker.id]}
-                    className="text-gray-300 hover:text-red-500 flex-shrink-0 disabled:opacity-50"
+                    className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
                   >
                     ✕
                   </button>
@@ -710,7 +720,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
         <div className="fixed inset-0 z-50">
           <div className="absolute inset-0 bg-black/40" onClick={() => setShowWorkerPicker(false)} />
           <div
-            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl"
+            className="absolute bottom-0 left-0 right-0 bg-white rounded-t-2xl shadow-2xl overflow-x-hidden"
             style={{ maxHeight: '75vh', display: 'flex', flexDirection: 'column' }}
           >
             {/* Header */}
@@ -808,8 +818,9 @@ function SinglePlan({ date, user, profile, collabPartner }) {
             </div>
 
             {/* Done button */}
-            <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0">
+            <div className="px-5 py-4 border-t border-gray-100 flex-shrink-0 bg-white">
               <button
+                type="button"
                 onClick={() => setShowWorkerPicker(false)}
                 className="w-full bg-[#0F172A] text-white font-semibold py-3 rounded-xl text-sm"
               >
