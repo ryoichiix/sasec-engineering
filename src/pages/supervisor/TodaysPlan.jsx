@@ -719,7 +719,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
       {/* Rebuilt with inline styles only — no Tailwind classes on any element
           in this tree — to rule out any utility-class/paint interaction. */}
       {showWorkerPicker && (
-        <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
+        <div style={{ position: 'fixed', inset: 0, zIndex: 9999, overflowX: 'hidden' }}>
           {/* Backdrop */}
           <div
             style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }}
@@ -728,15 +728,18 @@ function SinglePlan({ date, user, profile, collabPartner }) {
 
           {/* Sheet */}
           <div style={{
-            position: 'absolute',
+            position: 'fixed',
             bottom: 0, left: 0, right: 0,
+            width: '100%',
+            maxWidth: '100vw',
             background: '#ffffff',
             borderRadius: '20px 20px 0 0',
             maxHeight: '75vh',
             display: 'flex',
             flexDirection: 'column',
             boxShadow: '0 -4px 24px rgba(0,0,0,0.15)',
-            overflow: 'hidden',
+            boxSizing: 'border-box',
+            overflowX: 'hidden',
           }}>
 
             {/* Header */}
