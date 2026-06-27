@@ -787,7 +787,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                         else claim(worker)
                       }}
                       disabled={isOther || busy}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
+                      className={`appearance-none w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all ${
                         isMine
                           ? 'bg-[#0F172A] border-[#0F172A] cursor-pointer'
                           : isOther

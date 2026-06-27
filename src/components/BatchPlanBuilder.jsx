@@ -587,7 +587,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                         }
                       }}
                       disabled={inOtherBatch}
-                      className={`w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
+                      className={`appearance-none w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-all cursor-pointer ${
                         alreadyInBatch
                           ? 'bg-[#0F172A] border-[#0F172A]'
                           : inOtherBatch
