@@ -68,14 +68,24 @@ export default function BossDashboard() {
       supabase.from('attendance').select('id', { count: 'exact', head: true }).in('ot_status', ['pending', 'pending_boss']),
       supabase.from('workers').select('id', { count: 'exact', head: true }),
       supabase.from('weekly_advances').select('id', { count: 'exact', head: true }).eq('advance_status', 'pending_boss'),
-    ]).then(([att, leave, ot, wk, adv]) => {
+      // Bug 3b: planned OT awaiting Director. morning_plan is text (JSON string),
+      // so filter JS-side rather than with `->>` (same pattern as lib/plan-ot.js).
+      supabase.from('work_plans').select('morning_plan'),
+    ]).then(([att, leave, ot, wk, adv, plans]) => {
       if (!m) return
       const rows = att.data || []
+      const plannedOtCount = (plans.data || []).filter((p) => {
+        if (!p?.morning_plan) return false
+        try {
+          const parsed = JSON.parse(p.morning_plan)
+          return parsed && parsed.ot_status === 'pending_boss'
+        } catch { return false }
+      }).length
       setStats({
         present: rows.filter((r) => r.status === 'present').length,
         half:    rows.filter((r) => r.status === 'half_day').length,
         absent:  rows.filter((r) => r.status === 'absent').length,
-        pending: (leave.count || 0) + (ot.count || 0) + (adv.count || 0),
+        pending: (leave.count || 0) + (ot.count || 0) + (adv.count || 0) + plannedOtCount,
       })
       setTotalWorkers(wk.count || 0)
       setLoadingStats(false)
@@ -198,7 +208,7 @@ export default function BossDashboard() {
           <>
             <StatCard icon={UserCheck} label="Present today"      value={stats.present}   tone="success" sublabel={`of ${totalWorkers} workers`}              delay={0}   href="/boss/attendance" />
             <StatCard icon={UserX}     label="Absent today"       value={stats.absent}    tone="error"   sublabel={stats.absent > 0 ? 'need attention' : 'all clear'} delay={50}  href="/boss/attendance" />
-            <StatCard icon={AlertTriangle} label="Pending approvals" value={stats.pending} tone="warning" sublabel="leave + OT + advance"                               delay={100} href="/boss/requests"   />
+            <StatCard icon={AlertTriangle} label="Pending approvals" value={stats.pending} tone="warning" sublabel="leave + OT + advance + planned OT"                  delay={100} href="/boss/requests"   />
             <StatCard icon={IndianRupee} label="Monthly payroll"  value={payroll.actual}  tone="gold"    prefix="₹" sublabel="estimated net"                          delay={150} href="/boss/payroll"    />
           </>
         )}

@@ -449,9 +449,16 @@ function SupervisorCard({ name, partnerName = null, role, report, team, batches 
           <div className="flex items-center gap-2 flex-wrap">
             <span className="font-semibold text-gray-900 text-base">{displayName}</span>
             <span className="text-xs text-gray-400 font-normal">{role}</span>
-            {report.overtime && (
-              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-amber-200">
+            {/* Bug 1: only show OT times when approved; otherwise show a pending label.
+                Uses report.overtime (the actual saved boolean — spec called it ot_planned). */}
+            {report.overtime && report.ot_status === 'approved' && (
+              <span className="inline-flex items-center gap-1 bg-emerald-50 text-emerald-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-emerald-200">
                 ⚡ OT {report.ot_from}–{report.ot_to}
+              </span>
+            )}
+            {report.overtime && report.ot_status && !['none', 'approved', 'rejected'].includes(report.ot_status) && (
+              <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-amber-200">
+                ⚡ OT Pending Approval
               </span>
             )}
           </div>
@@ -609,10 +616,17 @@ function CollabPartnerDetail({ name, report, team = [] }) {
               <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
             </div>
           ))}
-          {report.overtime && (
+          {/* Bug 1: OT row only when approved (green); pending in-flight shows a label, no times. */}
+          {report.overtime && report.ot_status === 'approved' && (
             <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-purple-100">
-              <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT Timing</span>
-              <span className="text-sm font-semibold text-amber-700 text-right">{report.ot_from} – {report.ot_to}</span>
+              <span className="text-xs text-emerald-600 flex-shrink-0">⚡ OT Timing</span>
+              <span className="text-sm font-semibold text-emerald-700 text-right">{report.ot_from} – {report.ot_to}</span>
+            </div>
+          )}
+          {report.overtime && report.ot_status && !['none', 'approved', 'rejected'].includes(report.ot_status) && (
+            <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-purple-100">
+              <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT</span>
+              <span className="text-sm font-semibold text-amber-700 text-right">Pending Approval</span>
             </div>
           )}
           {hasTrawler && (
@@ -691,10 +705,17 @@ function DetailDrawer({ detail, report, team, batches = [], updates, partnerName
                       <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
                     </div>
                   ))}
-                  {report.overtime && (
+                  {/* Bug 1: OT row only when approved (green); pending in-flight shows a label, no times. */}
+                  {report.overtime && report.ot_status === 'approved' && (
+                    <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-emerald-100">
+                      <span className="text-xs text-emerald-600 flex-shrink-0">⚡ OT Timing</span>
+                      <span className="text-sm font-semibold text-emerald-700 text-right">{report.ot_from} – {report.ot_to}</span>
+                    </div>
+                  )}
+                  {report.overtime && report.ot_status && !['none', 'approved', 'rejected'].includes(report.ot_status) && (
                     <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-amber-100">
-                      <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT Timing</span>
-                      <span className="text-sm font-semibold text-amber-700 text-right">{report.ot_from} – {report.ot_to}</span>
+                      <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT</span>
+                      <span className="text-sm font-semibold text-amber-700 text-right">Pending Approval</span>
                     </div>
                   )}
                 </div>

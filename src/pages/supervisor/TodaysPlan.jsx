@@ -455,20 +455,35 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     // their review. The Director is NOT notified here — they're notified only
     // once the Site Incharge approves (see lib/plan-ot.js → fmApprovePlannedOt).
     // Best-effort and post-save: a notification failure must never block the save.
+    //
+    // Bug 2: explicit logging + per-call try/catch + RPC-returned error surfaces
+    // any silent notifyUser failure so we can debug why bells weren't firing.
     if (overtime && nextOtStatus === 'pending_field_manager') {
       const supName = profile?.full_name || 'A supervisor'
       const dateLabel = formatDate(date)
       try {
-        const { data: fieldManagers } = await supabase
-          .from('profiles').select('id').eq('field_manager', true)
+        const { data: fieldManagers, error: fmQueryErr } = await supabase
+          .from('profiles').select('id, full_name').eq('field_manager', true)
+        if (fmQueryErr) console.error('OT notify: field_manager query failed:', fmQueryErr)
+        const targets = (fieldManagers || []).filter((p) => p.id !== profile?.id)
+        console.log('OT notify: targeting', targets.length, 'Site Incharge(s)', targets.map((t) => t.id))
         const fmMessage = `${supName} planned OT from ${otFrom} to ${otTo} on ${dateLabel}.`
-        await Promise.all(
-          (fieldManagers || [])
-            .filter((p) => p.id !== profile?.id)
-            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: fmMessage, type: 'ot_planned' }))
-        )
+        await Promise.all(targets.map(async (p) => {
+          try {
+            console.log('Notifying OT:', p.id, 'ot_planned')
+            const { error: notifyErr } = await notifyUser({
+              userId: p.id,
+              title: 'OT planned',
+              message: fmMessage,
+              type: 'ot_planned',
+            })
+            if (notifyErr) console.error('OT notifyUser RPC returned error for', p.id, ':', notifyErr)
+          } catch (e) {
+            console.error('OT notifyUser threw for', p.id, ':', e)
+          }
+        }))
       } catch (e) {
-        console.error('OT notification failed:', e)
+        console.error('OT notification block failed:', e)
       }
     }
   }
