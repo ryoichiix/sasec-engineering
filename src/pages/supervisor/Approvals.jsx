@@ -3,6 +3,8 @@ import { Navigate } from 'react-router-dom'
 import DashboardShell from '../../components/DashboardShell'
 import LeaveQueue from '../../components/LeaveQueue'
 import OTRequestsFMContent from '../../components/OTRequestsFMContent'
+import PlannedOTRequestsFMContent from '../../components/PlannedOTRequestsFMContent'
+import QueueSectionHeader from '../../components/QueueSectionHeader'
 import AdvanceRequestsFMContent from '../../components/AdvanceRequestsFMContent'
 import { useAuth } from '../../contexts/auth-context'
 
@@ -24,9 +26,10 @@ export default function Approvals() {
   const [activeTab, setActiveTab] = useState('leave')
   const [leaveCount, setLeaveCount]     = useState(0)
   const [otCount, setOtCount]           = useState(0)
+  const [plannedOtCount, setPlannedOtCount] = useState(0)
   const [advanceCount, setAdvanceCount] = useState(0)
-  const totalPending = leaveCount + otCount + advanceCount
-  const countByTab = { leave: leaveCount, ot: otCount, advances: advanceCount }
+  const totalPending = leaveCount + otCount + plannedOtCount + advanceCount
+  const countByTab = { leave: leaveCount, ot: otCount + plannedOtCount, advances: advanceCount }
 
   // Not a Site Incharge — this page has nothing to show them.
   if (profile && !isFM) return <Navigate to="/supervisor" replace />
@@ -76,6 +79,11 @@ export default function Approvals() {
         <LeaveQueue stage="field_manager" onCountChange={setLeaveCount} />
       </div>
       <div className={activeTab === 'ot' ? '' : 'hidden'}>
+        {/* Planned OT — overtime scheduled in a supervisor's morning work plan */}
+        <QueueSectionHeader title="Planned OT (work plans)" count={plannedOtCount} />
+        <PlannedOTRequestsFMContent onCountChange={setPlannedOtCount} />
+        {/* Worker OT — actual worked hours logged in attendance (feeds payroll) */}
+        <QueueSectionHeader title="Worker OT (attendance)" count={otCount} />
         <OTRequestsFMContent onCountChange={setOtCount} />
       </div>
       <div className={activeTab === 'advances' ? '' : 'hidden'}>

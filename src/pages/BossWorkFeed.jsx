@@ -178,6 +178,25 @@ function UpdatesFeed() {
     return () => { isMounted = false }
   }, [])
 
+  // Fix A: live-update merged plan cards when any work plan changes (e.g. a
+  // collaborator edits the shared canonical plan). Only the plans map needs
+  // refreshing — teams/updates are unaffected by a plan edit. Requires
+  // work_plans in the realtime publication (migration 48-work-plans-realtime.sql).
+  useEffect(() => {
+    const channel = supabase
+      .channel('boss-feed-work-plans')
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'work_plans' },
+        async () => {
+          const { data: plans } = await fetchSiteReportsRange(DAYS_BACK)
+          const planMap = {}
+          for (const p of plans || []) planMap[`${p.plan_date}|${p.supervisor_id}`] = p.report
+          setPlansByKey(planMap)
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
   // Group by date → supervisor (union of those with updates or a plan)
   const groups = useMemo(() => {
     const byDate = new Map()

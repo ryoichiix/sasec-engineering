@@ -20,16 +20,27 @@ import { isDirector } from '../../lib/workers'
 import { todayLocal, formatDate } from '../../lib/dates'
 import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, OT_TIMES } from '../../lib/plan-options'
 
+// Fix B: how each planned-OT approval status reads on the supervisor's own form.
+const OT_STATUS_META = {
+  pending_field_manager: { text: 'Awaiting Site Incharge approval', cls: 'bg-amber-100 text-amber-800' },
+  pending_boss:          { text: 'Awaiting Director approval',      cls: 'bg-amber-100 text-amber-800' },
+  approved:              { text: 'OT approved',                     cls: 'bg-emerald-100 text-emerald-800' },
+  rejected:              { text: 'OT not approved',                 cls: 'bg-rose-100 text-rose-800' },
+}
+
 export default function TodaysPlan() {
   const { user, profile } = useAuth()
   const [date, setDate] = useState(todayLocal())
   const [batchMode, setBatchMode] = useState(false)
-  const [collabPartner, setCollabPartner] = useState(null) // { name, report } | null
+  const [collabPartner, setCollabPartner] = useState(null) // { name, partnerId } | null
+  // Fix A: the work_plans row both collaborators share is owned by the collab
+  // INITIATOR. Until the collab check resolves we fall back to the user's own id.
+  const [canonicalOwnerId, setCanonicalOwnerId] = useState(null)
 
-  // Detect an ACCEPTED collaboration for this date and load the partner's saved
-  // plan. Lifted to the parent so the banner can render above the Batch toggle
-  // and the partner's plan can pre-fill the single-plan form below. Reading the
-  // partner's work_plans row requires migration 47-collab-work-plan-read.sql.
+  // Detect an ACCEPTED collaboration for this date. When one exists, both
+  // supervisors read from and write to the INITIATOR's single canonical
+  // work_plans record (Fix A), so edits by either side stay in sync. Reading
+  // the initiator's row requires migration 47-collab-work-plan-read.sql.
   useEffect(() => {
     const myId = user?.id
     if (!myId) return
@@ -43,14 +54,13 @@ export default function TodaysPlan() {
         .eq('status', 'accepted')
       if (!active) return
       const collab = collabs?.[0]
-      if (!collab) { setCollabPartner(null); return }
+      if (!collab) { setCollabPartner(null); setCanonicalOwnerId(myId); return }
       const partnerId = collab.initiator_id === myId ? collab.collaborator_id : collab.initiator_id
-      const [{ data: prof }, { data: report }] = await Promise.all([
-        supabase.from('profiles').select('full_name').eq('id', partnerId).maybeSingle(),
-        fetchSiteReport(partnerId, date),
-      ])
+      setCanonicalOwnerId(collab.initiator_id)
+      const { data: prof } = await supabase
+        .from('profiles').select('full_name').eq('id', partnerId).maybeSingle()
       if (!active) return
-      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null, partnerId })
+      setCollabPartner({ name: prof?.full_name || 'Supervisor', partnerId })
     })()
     return () => { active = false }
   }, [user?.id, date])
@@ -85,7 +95,7 @@ export default function TodaysPlan() {
                 Collaborating with {collabPartner.name}
               </p>
               <p className="text-xs text-purple-600 mt-0.5">
-                Their plan details have been pre-filled below. You can edit if needed.
+                You're both editing one shared plan — changes sync to each other live.
               </p>
             </div>
           </div>
@@ -123,7 +133,14 @@ export default function TodaysPlan() {
             supervisorName={profile?.full_name}
           />
         ) : (
-          <SinglePlan key={date} date={date} user={user} profile={profile} collabPartner={collabPartner} />
+          <SinglePlan
+            key={`${date}|${canonicalOwnerId || user?.id}`}
+            date={date}
+            user={user}
+            profile={profile}
+            collabPartner={collabPartner}
+            canonicalOwnerId={canonicalOwnerId || user?.id}
+          />
         )}
       </div>
     </DashboardShell>
@@ -132,7 +149,7 @@ export default function TodaysPlan() {
 
 // ── Single-team mode: one unified form ───────────────────────────────────────
 // Team → Project Details → Tasks → Equipment → OT → Collaboration → Save.
-function SinglePlan({ date, user, profile, collabPartner }) {
+function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
   const myId = user?.id
 
   // ── Team (daily_assignments) ───────────────────────────────
@@ -209,6 +226,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
   const [overtime, setOvertime] = useState(false)
   const [otFrom, setOtFrom] = useState('')
   const [otTo, setOtTo] = useState('')
+  const [otStatus, setOtStatus] = useState('none') // Fix B: planned-OT approval status
 
   const [vehicles, setVehicles] = useState([])
   const [saving, setSaving] = useState(false)
@@ -222,50 +240,72 @@ function SinglePlan({ date, user, profile, collabPartner }) {
     return () => { active = false }
   }, [])
 
-  // Prefill the form: the user's OWN saved plan wins; otherwise, if there's an
-  // accepted collaboration, auto-fill from the partner's plan (Change 2). The
-  // parent remounts with key={date}, so prefilledRef resets per date; the guard
-  // prevents a late collabPartner prop update from clobbering edits in progress.
+  // ── Prefill + live sync of the shared plan ─────────────────
+  // With an accepted collaboration both supervisors read/write the initiator's
+  // canonical row (canonicalOwnerId); solo, it's the user's own row. applyReport
+  // fills every form field from a parsed work-plan report and is reused by both
+  // the initial prefill and the realtime subscription below.
+  const applyReport = useCallback((data, { withPermit }) => {
+    const proj = data.project_description ?? ''
+    if (PROJECT_OPTIONS.includes(proj)) { setProjectDescription(proj); setCustomProject('') }
+    else if (proj) { setProjectDescription('__custom__'); setCustomProject(proj) }
+    else { setProjectDescription(''); setCustomProject('') }
+    const loc = data.project_location ?? ''
+    if (LOCATION_OPTIONS.includes(loc)) { setProjectLocation(loc); setCustomLocation('') }
+    else if (loc) { setProjectLocation('__custom__'); setCustomLocation(loc) }
+    else { setProjectLocation(''); setCustomLocation('') }
+    if (withPermit) setPermitHolder(data.permit_holder ?? profile?.full_name ?? '')
+    setWorkFrom(data.work_from ?? '09:00')
+    setWorkTo(data.work_to ?? '18:00')
+    setOvertime(!!data.overtime)
+    setOtFrom(data.ot_from ?? '')
+    setOtTo(data.ot_to ?? '')
+    setOtStatus(data.ot_status ?? 'none')
+    setCrane(data.equipment?.crane ?? '')
+    setHydra(data.equipment?.hydra ?? '')
+    setCherryPicker(data.equipment?.cherry_picker ?? '')
+    setTrawler(data.equipment?.trawler ?? '')
+    setTrawlerNotRequired(!!data.equipment?.trawler_not_required)
+    setTasks(Array.isArray(data.tasks) ? data.tasks : [])
+  }, [profile?.full_name])
+
+  // Initial prefill from the canonical row (own, or the initiator's when
+  // collaborating). The parent remounts SinglePlan with a key that includes
+  // canonicalOwnerId, so prefilledRef resets when the owner resolves.
   const prefilledRef = useRef(false)
   useEffect(() => {
-    if (!myId || prefilledRef.current) return
+    if (!canonicalOwnerId || prefilledRef.current) return
     let active = true
-    // Fill shared plan fields from a parsed work-plan report. `withPermit` is
-    // false for partner auto-fill — the permit holder is always the current
-    // supervisor, not the partner.
-    const apply = (data, { withPermit }) => {
-      const proj = data.project_description ?? ''
-      if (PROJECT_OPTIONS.includes(proj)) setProjectDescription(proj)
-      else if (proj) { setProjectDescription('__custom__'); setCustomProject(proj) }
-      const loc = data.project_location ?? ''
-      if (LOCATION_OPTIONS.includes(loc)) setProjectLocation(loc)
-      else if (loc) { setProjectLocation('__custom__'); setCustomLocation(loc) }
-      if (withPermit) setPermitHolder(data.permit_holder ?? profile?.full_name ?? '')
-      setWorkFrom(data.work_from ?? '09:00')
-      setWorkTo(data.work_to ?? '18:00')
-      setOvertime(!!data.overtime)
-      setOtFrom(data.ot_from ?? '')
-      setOtTo(data.ot_to ?? '')
-      setCrane(data.equipment?.crane ?? '')
-      setHydra(data.equipment?.hydra ?? '')
-      setCherryPicker(data.equipment?.cherry_picker ?? '')
-      setTrawler(data.equipment?.trawler ?? '')
-      setTrawlerNotRequired(!!data.equipment?.trawler_not_required)
-      setTasks(Array.isArray(data.tasks) ? data.tasks : [])
-    }
-    fetchSiteReport(myId, date).then(({ data: own }) => {
+    fetchSiteReport(canonicalOwnerId, date).then(({ data: report }) => {
       if (!active) return
-      if (own) {
+      if (report) {
         prefilledRef.current = true
-        apply(own, { withPermit: true })
-      } else if (collabPartner?.report) {
-        // No own plan yet — pre-fill from the collaboration partner's plan.
-        prefilledRef.current = true
-        apply(collabPartner.report, { withPermit: false })
+        applyReport(report, { withPermit: true })
       }
     })
     return () => { active = false }
-  }, [myId, date, profile?.full_name, collabPartner])
+  }, [canonicalOwnerId, date, applyReport])
+
+  // Fix A: live two-way sync. Subscribe to the canonical owner's work_plans row;
+  // when either supervisor saves, reload the plan and refresh every form field.
+  // savingRef suppresses the echo of our own write so it can't clobber edits the
+  // user makes right after saving. Requires work_plans in the realtime
+  // publication (migration 48-work-plans-realtime.sql).
+  const savingRef = useRef(false)
+  useEffect(() => {
+    if (!canonicalOwnerId) return
+    const channel = supabase
+      .channel(`work-plan-sync-${date}-${canonicalOwnerId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'work_plans', filter: `supervisor_id=eq.${canonicalOwnerId}` },
+        async () => {
+          if (savingRef.current) return
+          const { data: report } = await fetchSiteReport(canonicalOwnerId, date)
+          if (report) applyReport(report, { withPermit: true })
+        })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [date, canonicalOwnerId, applyReport])
 
   const getVehiclesByType = (keyword) =>
     vehicles.filter((v) => v.vehicle_type?.toLowerCase().includes(keyword.toLowerCase()))
@@ -361,19 +401,27 @@ function SinglePlan({ date, user, profile, collabPartner }) {
   const handleSave = async () => {
     setSaved(false)
     setFormError(null)
-    // ── Fix 1: always persist under the logged-in user's OWN profile id — never the
-    // collaboration partner's. Each supervisor owns their own work_plans row. ──
-    const savingId = profile?.id // MUST be own profile, never partner's
-    const partnerId = collabPartner?.partnerId ?? null
-    if (partnerId && savingId === partnerId) {
-      console.error('[TodaysPlan] savingId equals collaboration partnerId — refusing to overwrite partner plan', { savingId, partnerId })
-    }
+    // Fix A: write to the canonical owner's row — the collab INITIATOR when an
+    // accepted collaboration exists, otherwise the user's own id. Both
+    // collaborators share this one record, so either side's edits sync.
+    const savingId = canonicalOwnerId || profile?.id
     const finalProject = projectDescription === '__custom__' ? customProject.trim() : projectDescription
     const finalLocation = projectLocation === '__custom__' ? customLocation.trim() : projectLocation
     if (!finalProject) { setFormError('Please choose a project description.'); return }
     if (tasks.length === 0) { setFormError('Please select at least one task.'); return }
 
+    // Fix B: planned-OT status. Turning OT on (re)submits to the Site Incharge;
+    // an already in-flight or approved status is preserved across unrelated edits
+    // so re-saving the plan never silently resets an approval. OT off clears it.
+    let nextOtStatus = 'none'
+    if (overtime) {
+      nextOtStatus = (otStatus && !['none', 'rejected'].includes(otStatus))
+        ? otStatus
+        : 'pending_field_manager'
+    }
+
     setSaving(true)
+    savingRef.current = true
     const report = {
       project_description: finalProject,
       project_location: finalLocation,
@@ -383,6 +431,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
       overtime,
       ot_from: overtime ? otFrom : '',
       ot_to: overtime ? otTo : '',
+      ot_status: nextOtStatus,
       equipment: {
         crane,
         hydra,
@@ -394,30 +443,30 @@ function SinglePlan({ date, user, profile, collabPartner }) {
     }
     const { error: err } = await saveSiteReport(savingId, date, report)
     setSaving(false)
-    if (err) { setFormError(err.message); return }
+    if (err) { savingRef.current = false; setFormError(err.message); return }
+    setOtStatus(nextOtStatus)
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
+    // Keep ignoring realtime echoes briefly so our own write can't clobber a
+    // field the user edits immediately after saving.
+    setTimeout(() => { savingRef.current = false }, 1200)
 
-    // ── Fix 6: notify Site Incharges (field managers) + Director when OT is planned ──
-    // Best-effort and post-save: a notification failure must never block the plan save.
-    if (overtime) {
+    // ── Fix 6 + Fix B: notify the Site Incharge(s) that OT is planned and awaits
+    // their review. The Director is NOT notified here — they're notified only
+    // once the Site Incharge approves (see lib/plan-ot.js → fmApprovePlannedOt).
+    // Best-effort and post-save: a notification failure must never block the save.
+    if (overtime && nextOtStatus === 'pending_field_manager') {
       const supName = profile?.full_name || 'A supervisor'
       const dateLabel = formatDate(date)
       try {
-        const [{ data: fieldManagers }, { data: bosses }] = await Promise.all([
-          supabase.from('profiles').select('id').eq('field_manager', true),
-          supabase.from('profiles').select('id').eq('role', 'boss'),
-        ])
+        const { data: fieldManagers } = await supabase
+          .from('profiles').select('id').eq('field_manager', true)
         const fmMessage = `${supName} planned OT from ${otFrom} to ${otTo} on ${dateLabel}.`
-        const bossMessage = `${supName} has planned overtime (${otFrom} – ${otTo}) for ${dateLabel}.`
-        await Promise.all([
-          ...(fieldManagers || [])
+        await Promise.all(
+          (fieldManagers || [])
             .filter((p) => p.id !== profile?.id)
-            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: fmMessage, type: 'ot_planned' })),
-          ...(bosses || [])
-            .filter((p) => p.id !== profile?.id)
-            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: bossMessage, type: 'ot_planned' })),
-        ])
+            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: fmMessage, type: 'ot_planned' }))
+        )
       } catch (e) {
         console.error('OT notification failed:', e)
       }
@@ -734,6 +783,11 @@ function SinglePlan({ date, user, profile, collabPartner }) {
         {overtime && (
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-4 space-y-3">
             <p className="text-xs text-amber-700">⚡ OT requires prior Director approval. Food &amp; consumables must be planned.</p>
+            {otStatus && OT_STATUS_META[otStatus] && (
+              <div className={`text-xs font-semibold inline-block px-3 py-1 rounded-lg ${OT_STATUS_META[otStatus].cls}`}>
+                {OT_STATUS_META[otStatus].text}
+              </div>
+            )}
             {[{ label: 'OT From', val: otFrom, set: setOtFrom }, { label: 'OT To', val: otTo, set: setOtTo }].map((ot) => (
               <div key={ot.label}>
                 <p className="text-xs font-medium text-amber-700 mb-1.5">{ot.label}</p>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import DashboardShell from '../components/DashboardShell'
 import LeaveQueue from '../components/LeaveQueue'
 import OTRequestsContent from '../components/OTRequestsContent'
+import PlannedOTRequestsContent from '../components/PlannedOTRequestsContent'
 import AdvanceRequestsContent from '../components/AdvanceRequestsContent'
 
 const TABS = [
@@ -33,7 +34,16 @@ export default function BossRequests() {
       </div>
 
       {tab === 'leave'   && <LeaveQueue stage="boss" />}
-      {tab === 'ot'      && <OTRequestsContent />}
+      {tab === 'ot'      && (
+        <>
+          {/* Planned OT — scheduled in a supervisor's morning work plan, already approved by the Site Incharge */}
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#94A3B8] mb-3">Planned OT — work plans</h2>
+          <PlannedOTRequestsContent />
+          {/* Worker OT — actual worked hours from attendance (feeds payroll) */}
+          <h2 className="text-sm font-semibold uppercase tracking-widest text-[#94A3B8] mt-10 mb-3">Worker OT — attendance</h2>
+          <OTRequestsContent />
+        </>
+      )}
       {tab === 'advance' && <AdvanceRequestsContent />}
     </DashboardShell>
   )
