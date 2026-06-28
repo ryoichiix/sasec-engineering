@@ -55,11 +55,17 @@ export async function fetchVehicles() {
 export async function checkVehicleExpiry(userId) {
   if (!userId) return
 
+  // Once-per-day guard: skip if this device already ran the check today.
+  const todayStr = new Date().toISOString().split('T')[0]
+  if (localStorage.getItem('vehicle_expiry_check_date') === todayStr) return
+  localStorage.setItem('vehicle_expiry_check_date', todayStr)
+
   const { data: vehicles, error } = await supabase.from('vehicles').select('*')
   if (error || !vehicles) return // table not seeded yet → silently skip
 
+  // Normalize "today" to local midnight so day-count math is exact (no time-of-day drift).
   const today = new Date()
-  const todayStr = today.toISOString().split('T')[0]
+  today.setHours(0, 0, 0, 0)
   const thirtyDaysLater = new Date(today.getTime() + 30 * 24 * 60 * 60 * 1000)
 
   const expiringDocs = []
@@ -67,6 +73,7 @@ export async function checkVehicleExpiry(userId) {
     for (const doc of NOTIFY_DOC_FIELDS) {
       if (!vehicle[doc.key]) continue
       const expiry = new Date(vehicle[doc.key])
+      expiry.setHours(0, 0, 0, 0)
       if (expiry < today) {
         expiringDocs.push({
           vehicle_no: vehicle.vehicle_no,
@@ -77,7 +84,7 @@ export async function checkVehicleExpiry(userId) {
           expired: true,
         })
       } else if (expiry <= thirtyDaysLater) {
-        const daysLeft = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24))
+        const daysLeft = Math.ceil((expiry - today) / 86400000)
         expiringDocs.push({
           vehicle_no: vehicle.vehicle_no,
           vehicle_type: vehicle.vehicle_type,

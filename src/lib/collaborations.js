@@ -149,3 +149,22 @@ export function buildCollabMap(rows, namesById) {
   }
   return map
 }
+
+/**
+ * From collaboration rows, build the ACCEPTED-pair maps used by the work feeds
+ * to merge two supervisors' cards into one. The initiator is the "primary"
+ * (their plan drives the merged card); the collaborator is the "secondary"
+ * (their separate card is skipped). Keys are `${date}|${supervisorId}`.
+ *   primaryByKey[`${date}|${initiatorId}`]    -> collaboratorId (partner to merge in)
+ *   secondaryByKey[`${date}|${collaboratorId}`] -> initiatorId (the primary it folds into)
+ */
+export function buildAcceptedMerges(rows) {
+  const primaryByKey = {}
+  const secondaryByKey = {}
+  for (const r of rows || []) {
+    if (r.status !== 'accepted') continue
+    primaryByKey[`${r.date}|${r.initiator_id}`] = r.collaborator_id
+    secondaryByKey[`${r.date}|${r.collaborator_id}`] = r.initiator_id
+  }
+  return { primaryByKey, secondaryByKey }
+}

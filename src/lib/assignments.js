@@ -40,6 +40,25 @@ export async function fetchPresentWorkers(date) {
   return { error: null, data: workers || [] }
 }
 
+/**
+ * Worker IDs marked present (or half-day) on `date`, read from the attendance
+ * table. Used to gate the Today's Plan / Batch worker pickers to present staff.
+ */
+export async function fetchPresentWorkerIds(date) {
+  const { data, error } = await supabase
+    .from('attendance')
+    .select('worker_id, worker_table_id, status')
+    .eq('attendance_date', date)
+    .in('status', ['present', 'half_day'])
+  if (error) return { data: null, error }
+  const ids = []
+  for (const r of data || []) {
+    const id = r.worker_id || r.worker_table_id
+    if (id) ids.push(id)
+  }
+  return { data: ids, error: null }
+}
+
 export function fetchAssignmentsForDate(date) {
   return supabase
     .from('daily_assignments')

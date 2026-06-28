@@ -11,7 +11,7 @@ import {
 import { fetchSiteReportsRange } from '../../lib/work-plans'
 import { fetchAssignmentsRange } from '../../lib/assignments'
 import { fetchBatchesRange } from '../../lib/batches'
-import { fetchCollaborationsRange, buildCollabMap } from '../../lib/collaborations'
+import { fetchCollaborationsRange, buildCollabMap, buildAcceptedMerges } from '../../lib/collaborations'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatDateTime } from '../../lib/dates'
 import { useAuth } from '../../contexts/auth-context'
@@ -28,6 +28,18 @@ function to12hr(time24) {
 
 const roleLabel = (role) =>
   ({ supervisor: 'Supervisor', boss: 'Director', field_manager: 'Field Manager' })[role] || 'Supervisor'
+
+// Dedupe a merged team list by worker id (collaborating supervisors share a pool).
+function dedupeTeam(list) {
+  const seen = new Set()
+  const out = []
+  for (const w of list) {
+    if (!w || seen.has(w.id)) continue
+    seen.add(w.id)
+    out.push(w)
+  }
+  return out
+}
 
 export default function SiteInchargeWorkFeed() {
   const { profile } = useAuth()
@@ -64,6 +76,8 @@ function UpdatesFeed() {
   const [teamsByKey, setTeamsByKey] = useState({})         // `${date}|${supId}` -> [{ id, name, designation }]
   const [batchesByKey, setBatchesByKey] = useState({})     // `${date}|${supId}` -> [batch, …]
   const [collabMap, setCollabMap] = useState({})           // `${date}|${supId}` -> [{ name, status }]
+  const [mergePrimary, setMergePrimary] = useState({})     // `${date}|${initiatorId}` -> collaboratorId (accepted)
+  const [mergeSecondary, setMergeSecondary] = useState({}) // `${date}|${collaboratorId}` -> initiatorId (accepted)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [detail, setDetail] = useState(null) // { supId, name, role, date }
@@ -87,6 +101,11 @@ function UpdatesFeed() {
       const batchList  = batchRes.data || []
       const collabRows = collabRes.data || []
       setUpdates(updateList)
+
+      // Fix 3: accepted-pair maps so collaborating supervisors render as ONE card.
+      const merges = buildAcceptedMerges(collabRows)
+      setMergePrimary(merges.primaryByKey)
+      setMergeSecondary(merges.secondaryByKey)
 
       // Structured plans keyed by date|supervisor
       const planMap = {}
@@ -186,11 +205,18 @@ function UpdatesFeed() {
       const [date, supId] = key.split('|')
       ensure(date, supId)
     }
+    // Fix 3: ensure each accepted pair's primary (initiator) has a card to host the merge.
+    for (const key of Object.keys(mergePrimary)) {
+      const [date, supId] = key.split('|')
+      ensure(date, supId)
+    }
 
     const out = []
     for (const [date, bySup] of byDate) {
       const supervisors = []
       for (const [supId, supUpdates] of bySup) {
+        // Fix 3: the secondary (collaborator) is folded into the primary's merged card.
+        if (mergeSecondary[`${date}|${supId}`]) continue
         supUpdates.sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
         supervisors.push({ supId, updates: supUpdates })
       }
@@ -201,7 +227,7 @@ function UpdatesFeed() {
     }
     out.sort((a, b) => (a.date < b.date ? 1 : -1))
     return out
-  }, [updates, plansByKey, batchesByKey, supervisorMeta])
+  }, [updates, plansByKey, batchesByKey, supervisorMeta, mergePrimary, mergeSecondary])
 
   if (loading) return <p className="text-sm text-slate-500">Loading…</p>
   if (error) return <p className="text-sm text-rose-600">{error}</p>
@@ -227,18 +253,39 @@ function UpdatesFeed() {
             {g.supervisors.map(({ supId, updates: supUpdates }) => {
               const meta = supervisorMeta[supId] || {}
               const key = `${g.date}|${supId}`
+
+              // Fix 3: merge an accepted collaboration partner into this (primary) card.
+              const partnerSupId = mergePrimary[key] || null
+              const partnerKey = partnerSupId ? `${g.date}|${partnerSupId}` : null
+              const partnerName = partnerSupId ? (supervisorMeta[partnerSupId]?.name || 'Supervisor') : null
+              const team = partnerKey
+                ? dedupeTeam([...(teamsByKey[key] || []), ...(teamsByKey[partnerKey] || [])])
+                : (teamsByKey[key] || [])
+              const cardUpdates = partnerSupId
+                ? [...supUpdates, ...updates.filter((u) => u.update_date === g.date && u.supervisor_id === partnerSupId)]
+                    .sort((a, b) => (a.created_at < b.created_at ? -1 : 1))
+                : supUpdates
+
               return (
                 <SupervisorCard
                   key={supId}
                   name={meta.name || 'Unnamed supervisor'}
+                  partnerName={partnerName}
                   role={roleLabel(meta.role)}
                   report={plansByKey[key] || null}
-                  team={teamsByKey[key] || []}
+                  team={team}
                   batches={batchesByKey[key] || []}
-                  collaboration={collabMap[key] || []}
-                  updates={supUpdates}
+                  collaboration={partnerSupId ? [] : (collabMap[key] || [])}
+                  updates={cardUpdates}
                   attsByUpdateId={attsByUpdateId}
-                  onViewFull={() => setDetail({ supId, name: meta.name || 'Unnamed supervisor', role: roleLabel(meta.role), date: g.date })}
+                  onViewFull={() => setDetail({
+                    supId,
+                    name: meta.name || 'Unnamed supervisor',
+                    role: roleLabel(meta.role),
+                    date: g.date,
+                    partnerSupId,
+                    partnerName,
+                  })}
                 />
               )
             })}
@@ -255,6 +302,9 @@ function UpdatesFeed() {
           batches={batchesByKey[`${detail.date}|${detail.supId}`] || []}
           updates={(groups.find((g) => g.date === detail.date)?.supervisors
             .find((s) => s.supId === detail.supId)?.updates) || []}
+          partnerName={detail.partnerName || null}
+          partnerReport={detail.partnerSupId ? (plansByKey[`${detail.date}|${detail.partnerSupId}`] || null) : null}
+          partnerTeam={detail.partnerSupId ? (teamsByKey[`${detail.date}|${detail.partnerSupId}`] || []) : []}
           attsByUpdateId={attsByUpdateId}
           onClose={() => setDetail(null)}
         />
@@ -285,8 +335,10 @@ function CollabBadges({ collaboration }) {
   )
 }
 
-function SupervisorCard({ name, role, report, team, batches = [], collaboration = [], updates, attsByUpdateId, onViewFull }) {
+function SupervisorCard({ name, partnerName = null, role, report, team, batches = [], collaboration = [], updates, attsByUpdateId, onViewFull }) {
   const initial = (name || '?').charAt(0).toUpperCase()
+  const partnerInitial = partnerName ? partnerName.charAt(0).toUpperCase() : null
+  const displayName = partnerName ? `${name} + ${partnerName}` : name
   const eq = report?.equipment || {}
   const hasBatches = batches.length > 0
 
@@ -297,13 +349,20 @@ function SupervisorCard({ name, role, report, team, batches = [], collaboration 
         hasBatches ? 'border border-gray-100 shadow-sm' : 'border border-dashed border-gray-200'
       }`}>
         <div className="px-5 pt-4 pb-3 flex items-center gap-3">
-          <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-base flex-shrink-0 ${
-            hasBatches ? 'bg-[#0F172A] text-white shadow-sm' : 'bg-gray-100 text-gray-400'
-          }`}>
-            {initial}
+          <div className="flex-shrink-0 flex items-center">
+            <div className={`w-11 h-11 rounded-full flex items-center justify-center font-bold text-base ${
+              hasBatches ? 'bg-[#0F172A] text-white shadow-sm' : 'bg-gray-100 text-gray-400'
+            }`}>
+              {initial}
+            </div>
+            {partnerInitial && (
+              <div className="w-11 h-11 rounded-full bg-[#C0272D] text-white flex items-center justify-center font-bold text-base shadow-sm -ml-3 ring-2 ring-white">
+                {partnerInitial}
+              </div>
+            )}
           </div>
           <div>
-            <span className="font-semibold text-gray-700 text-sm">{name}</span>
+            <span className="font-semibold text-gray-700 text-sm">{displayName}</span>
             <p className="text-xs text-gray-400 mt-0.5">
               {hasBatches
                 ? `Batch Mode · ${batches.length} batch${batches.length === 1 ? '' : 'es'}`
@@ -356,17 +415,24 @@ function SupervisorCard({ name, role, report, team, batches = [], collaboration 
 
       {/* Card header — supervisor identity + project */}
       <div className="px-5 pt-5 pb-4 flex items-start gap-4">
-        <div className="w-11 h-11 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-base flex-shrink-0 shadow-sm">
-          {initial}
+        <div className="flex-shrink-0 flex items-center">
+          <div className="w-11 h-11 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-base shadow-sm">
+            {initial}
+          </div>
+          {partnerInitial && (
+            <div className="w-11 h-11 rounded-full bg-[#C0272D] text-white flex items-center justify-center font-bold text-base shadow-sm -ml-3 ring-2 ring-white">
+              {partnerInitial}
+            </div>
+          )}
         </div>
 
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-gray-900 text-base">{name}</span>
+            <span className="font-semibold text-gray-900 text-base">{displayName}</span>
             <span className="text-xs text-gray-400 font-normal">{role}</span>
             {report.overtime && (
               <span className="inline-flex items-center gap-1 bg-amber-50 text-amber-700 text-xs font-semibold px-2 py-0.5 rounded-full border border-amber-200">
-                ⚡ OT {to12hr(report.ot_from)}–{to12hr(report.ot_to)}
+                ⚡ OT {report.ot_from}–{report.ot_to}
               </span>
             )}
           </div>
@@ -501,7 +567,62 @@ function SupervisorCard({ name, role, report, team, batches = [], collaboration 
 
 // ── Detail drawer ──────────────────────────────────────────
 
-function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdateId, onClose }) {
+// Fix 3: compact "both supervisors side by side" block for the collaboration
+// partner inside the detail drawer — their own project summary + workmen list.
+function CollabPartnerDetail({ name, report, team = [] }) {
+  const eq = report?.equipment || {}
+  const hasTrawler = eq.trawler && eq.trawler !== 'NOT REQUIRED'
+  return (
+    <section className="pt-5 border-t border-gray-100">
+      <h3 className="text-[10px] font-semibold uppercase tracking-widest text-purple-500 mb-3">
+        🤝 {name}&apos;s plan
+      </h3>
+      {report ? (
+        <div className="bg-purple-50/50 rounded-xl p-4 space-y-3 mb-4">
+          {[
+            { label: 'Description', value: report.project_description },
+            { label: 'Location', value: report.project_location },
+            { label: 'Permit Holder', value: report.permit_holder },
+            { label: 'Timing', value: report.work_from && report.work_to ? `${to12hr(report.work_from)} – ${to12hr(report.work_to)}` : null },
+          ].map(({ label, value }) => value && (
+            <div key={label} className="flex justify-between items-baseline gap-4">
+              <span className="text-xs text-gray-500 flex-shrink-0">{label}</span>
+              <span className="text-sm font-medium text-gray-900 text-right">{value}</span>
+            </div>
+          ))}
+          {report.overtime && (
+            <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-purple-100">
+              <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT Timing</span>
+              <span className="text-sm font-semibold text-amber-700 text-right">{report.ot_from} – {report.ot_to}</span>
+            </div>
+          )}
+          {hasTrawler && (
+            <div className="flex justify-between items-baseline gap-4">
+              <span className="text-xs text-gray-500 flex-shrink-0">Trawler</span>
+              <span className="text-sm font-medium text-gray-900 text-right">{eq.trawler}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-sm text-gray-400 mb-4">No work plan submitted.</p>
+      )}
+      <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400 mb-2">Workmen ({team.length})</p>
+      {team.length ? (
+        <div className="space-y-2">
+          {team.map((w, i) => (
+            <div key={i} className="flex items-center gap-3 py-1.5">
+              <span className="text-xs text-gray-400 w-5 text-right font-mono">{i + 1}</span>
+              <span className="text-sm font-semibold text-gray-900">{w.name}</span>
+              <span className="text-xs text-gray-400 ml-auto">{w.designation}</span>
+            </div>
+          ))}
+        </div>
+      ) : <p className="text-sm text-gray-400">No team picked.</p>}
+    </section>
+  )
+}
+
+function DetailDrawer({ detail, report, team, batches = [], updates, partnerName = null, partnerReport = null, partnerTeam = [], attsByUpdateId, onClose }) {
   const eq = report?.equipment || {}
   const hasTrawler = eq.trawler && eq.trawler !== 'NOT REQUIRED'
   return (
@@ -510,11 +631,18 @@ function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdat
       <div className="w-full max-w-md bg-white h-full overflow-y-auto shadow-2xl flex flex-col">
         <div className="sticky top-0 bg-white/95 backdrop-blur-sm border-b border-gray-100 px-6 py-4 flex items-center justify-between z-10">
           <div className="flex items-center gap-3">
-            <div className="w-9 h-9 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm flex-shrink-0">
-              {(detail.name || '?').charAt(0)}
+            <div className="flex-shrink-0 flex items-center">
+              <div className="w-9 h-9 rounded-full bg-[#0F172A] text-white flex items-center justify-center font-bold text-sm">
+                {(detail.name || '?').charAt(0)}
+              </div>
+              {partnerName && (
+                <div className="w-9 h-9 rounded-full bg-[#C0272D] text-white flex items-center justify-center font-bold text-sm -ml-2.5 ring-2 ring-white">
+                  {(partnerName || '?').charAt(0)}
+                </div>
+              )}
             </div>
             <div>
-              <h2 className="font-semibold text-gray-900 text-base">{detail.name}</h2>
+              <h2 className="font-semibold text-gray-900 text-base">{partnerName ? `${detail.name} + ${partnerName}` : detail.name}</h2>
               <p className="text-xs text-gray-400">{formatDate(detail.date)}</p>
             </div>
           </div>
@@ -547,7 +675,7 @@ function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdat
                   {report.overtime && (
                     <div className="flex justify-between items-baseline gap-4 pt-2 border-t border-amber-100">
                       <span className="text-xs text-amber-600 flex-shrink-0">⚡ OT Timing</span>
-                      <span className="text-sm font-semibold text-amber-700 text-right">{to12hr(report.ot_from)} – {to12hr(report.ot_to)}</span>
+                      <span className="text-sm font-semibold text-amber-700 text-right">{report.ot_from} – {report.ot_to}</span>
                     </div>
                   )}
                 </div>
@@ -741,6 +869,11 @@ function DetailDrawer({ detail, report, team, batches = [], updates, attsByUpdat
               </div>
             ) : <p className="text-sm text-gray-400">No updates posted.</p>}
           </section>
+
+          {/* Fix 3: collaborating partner's own plan + team (both supervisors' details). */}
+          {partnerName && (
+            <CollabPartnerDetail name={partnerName} report={partnerReport} team={partnerTeam} />
+          )}
         </div>
       </div>
     </div>

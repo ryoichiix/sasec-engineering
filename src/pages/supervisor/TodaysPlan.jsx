@@ -8,12 +8,14 @@ import { supabase } from '../../lib/supabase'
 import {
   fetchAllWorkers,
   fetchAssignmentsForDate,
+  fetchPresentWorkerIds,
   claimWorker,
   releaseWorker,
   updateAssignmentTask,
 } from '../../lib/assignments'
 import { fetchSiteReport, saveSiteReport } from '../../lib/work-plans'
 import { fetchVehicles } from '../../lib/vehicles'
+import { notifyUser } from '../../lib/notifications'
 import { isDirector } from '../../lib/workers'
 import { todayLocal, formatDate } from '../../lib/dates'
 import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, OT_TIMES } from '../../lib/plan-options'
@@ -48,7 +50,7 @@ export default function TodaysPlan() {
         fetchSiteReport(partnerId, date),
       ])
       if (!active) return
-      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null })
+      setCollabPartner({ name: prof?.full_name || 'Supervisor', report: report || null, partnerId })
     })()
     return () => { active = false }
   }, [user?.id, date])
@@ -136,6 +138,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
   // ── Team (daily_assignments) ───────────────────────────────
   const [workers, setWorkers] = useState([])      // present workers for the date
   const [assignments, setAssignments] = useState([])
+  const [presentIds, setPresentIds] = useState(() => new Set()) // worker ids marked present (attendance) for the date
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [flashMsg, setFlashMsg] = useState(null)
@@ -152,9 +155,10 @@ function SinglePlan({ date, user, profile, collabPartner }) {
     if (inflightRef.current) return
     inflightRef.current = true
     try {
-      const [workersRes, assignRes] = await Promise.all([
+      const [workersRes, assignRes, presentRes] = await Promise.all([
         fetchAllWorkers(),
         fetchAssignmentsForDate(date),
+        fetchPresentWorkerIds(date),
       ])
       if (workersRes.error || assignRes.error) {
         setError((workersRes.error || assignRes.error).message)
@@ -162,6 +166,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
         setError(null)
         setWorkers(workersRes.data || [])
         setAssignments(assignRes.data || [])
+        setPresentIds(new Set(presentRes.data || []))
       }
       setLoading(false)
     } finally {
@@ -272,11 +277,20 @@ function SinglePlan({ date, user, profile, collabPartner }) {
     return m
   }, [assignments])
 
+  // Fix 2: with an accepted collaboration for the date, the team is the combined
+  // unique roster of BOTH supervisors. Partner-claimed workers are flagged
+  // (isOwn=false) and shown read-only — only their owner can edit/release them.
   const myTeam = useMemo(
     () => workers
-      .filter((w) => assignmentByWorker.get(w.id)?.supervisor_id === myId)
-      .map((w) => ({ ...w, assignment: assignmentByWorker.get(w.id) })),
-    [workers, assignmentByWorker, myId]
+      .filter((w) => {
+        const sup = assignmentByWorker.get(w.id)?.supervisor_id
+        return sup === myId || (!!collabPartner?.partnerId && sup === collabPartner.partnerId)
+      })
+      .map((w) => {
+        const assignment = assignmentByWorker.get(w.id)
+        return { ...w, assignment, isOwn: assignment?.supervisor_id === myId }
+      }),
+    [workers, assignmentByWorker, myId, collabPartner]
   )
 
   const designations = useMemo(
@@ -288,9 +302,10 @@ function SinglePlan({ date, user, profile, collabPartner }) {
     const q = searchQuery.trim().toLowerCase()
     return workers
       .filter((w) => !isDirector(w))
+      .filter((w) => presentIds.has(w.id)) // Fix 4: only workers marked present for the date
       .filter((w) => !q || (w.full_name || '').toLowerCase().includes(q))
       .filter((w) => !filterDesignation || w.designation_name === filterDesignation)
-  }, [workers, searchQuery, filterDesignation])
+  }, [workers, presentIds, searchQuery, filterDesignation])
 
   // ── Team actions ───────────────────────────────────────────
   const claim = async (worker) => {
@@ -346,6 +361,13 @@ function SinglePlan({ date, user, profile, collabPartner }) {
   const handleSave = async () => {
     setSaved(false)
     setFormError(null)
+    // ── Fix 1: always persist under the logged-in user's OWN profile id — never the
+    // collaboration partner's. Each supervisor owns their own work_plans row. ──
+    const savingId = profile?.id // MUST be own profile, never partner's
+    const partnerId = collabPartner?.partnerId ?? null
+    if (partnerId && savingId === partnerId) {
+      console.error('[TodaysPlan] savingId equals collaboration partnerId — refusing to overwrite partner plan', { savingId, partnerId })
+    }
     const finalProject = projectDescription === '__custom__' ? customProject.trim() : projectDescription
     const finalLocation = projectLocation === '__custom__' ? customLocation.trim() : projectLocation
     if (!finalProject) { setFormError('Please choose a project description.'); return }
@@ -370,11 +392,36 @@ function SinglePlan({ date, user, profile, collabPartner }) {
       },
       tasks,
     }
-    const { error: err } = await saveSiteReport(myId, date, report)
+    const { error: err } = await saveSiteReport(savingId, date, report)
     setSaving(false)
     if (err) { setFormError(err.message); return }
     setSaved(true)
     setTimeout(() => setSaved(false), 3000)
+
+    // ── Fix 6: notify Site Incharges (field managers) + Director when OT is planned ──
+    // Best-effort and post-save: a notification failure must never block the plan save.
+    if (overtime) {
+      const supName = profile?.full_name || 'A supervisor'
+      const dateLabel = formatDate(date)
+      try {
+        const [{ data: fieldManagers }, { data: bosses }] = await Promise.all([
+          supabase.from('profiles').select('id').eq('field_manager', true),
+          supabase.from('profiles').select('id').eq('role', 'boss'),
+        ])
+        const fmMessage = `${supName} planned OT from ${otFrom} to ${otTo} on ${dateLabel}.`
+        const bossMessage = `${supName} has planned overtime (${otFrom} – ${otTo}) for ${dateLabel}.`
+        await Promise.all([
+          ...(fieldManagers || [])
+            .filter((p) => p.id !== profile?.id)
+            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: fmMessage, type: 'ot_planned' })),
+          ...(bosses || [])
+            .filter((p) => p.id !== profile?.id)
+            .map((p) => notifyUser({ userId: p.id, title: 'OT planned', message: bossMessage, type: 'ot_planned' })),
+        ])
+      } catch (e) {
+        console.error('OT notification failed:', e)
+      }
+    }
   }
 
   const equipmentRows = [
@@ -420,6 +467,7 @@ function SinglePlan({ date, user, profile, collabPartner }) {
               const asn = worker.assignment
               const edit = taskEdits[asn?.id]
               const taskValue = edit?.value ?? asn?.task_assigned ?? ''
+              const isOwn = worker.isOwn
               return (
                 <div key={worker.id} className="flex items-center gap-3 py-2.5 border-b border-gray-50 last:border-0">
                   {/* Avatar */}
@@ -430,35 +478,43 @@ function SinglePlan({ date, user, profile, collabPartner }) {
                   {/* Name + designation */}
                   <div className="w-28 flex-shrink-0">
                     <p className="text-sm font-medium text-gray-900 truncate">{worker.full_name || 'Unnamed worker'}</p>
-                    <p className="text-xs text-gray-400 truncate">{worker.designation_name}</p>
+                    <p className="text-xs text-gray-400 truncate">
+                      {worker.designation_name}{!isOwn && collabPartner ? ` · ${collabPartner.name}` : ''}
+                    </p>
                   </div>
 
                   {/* Task input — takes all remaining space */}
                   <input
                     type="text"
-                    placeholder="Task (optional)"
+                    placeholder={isOwn ? 'Task (optional)' : ''}
                     value={taskValue}
-                    onChange={(e) =>
+                    disabled={!isOwn}
+                    onChange={(e) => {
+                      if (!isOwn) return
                       setTaskEdits((p) => ({ ...p, [asn.id]: { value: e.target.value, saved: false } }))
-                    }
-                    onBlur={() => {
-                      if (asn && taskValue !== (asn.task_assigned ?? '')) saveWorkerTask(asn.id, taskValue)
                     }}
-                    className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[#C0272D] bg-gray-50"
+                    onBlur={() => {
+                      if (isOwn && asn && taskValue !== (asn.task_assigned ?? '')) saveWorkerTask(asn.id, taskValue)
+                    }}
+                    className="flex-1 min-w-0 text-xs border border-gray-200 rounded-lg px-2.5 py-1.5 outline-none focus:ring-1 focus:ring-[#C0272D] bg-gray-50 disabled:opacity-60 disabled:cursor-not-allowed"
                   />
 
                   {/* Saved indicator */}
                   <span className="w-3 text-xs text-[#C0272D] flex-shrink-0">{edit?.saving ? '…' : edit?.saved ? '✓' : ''}</span>
 
-                  {/* Remove button */}
-                  <button
-                    type="button"
-                    onClick={() => release(worker)}
-                    disabled={!!pending[worker.id]}
-                    className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
-                  >
-                    ✕
-                  </button>
+                  {/* Remove button — only for your own claims; partner's are read-only */}
+                  {isOwn ? (
+                    <button
+                      type="button"
+                      onClick={() => release(worker)}
+                      disabled={!!pending[worker.id]}
+                      className="flex-shrink-0 w-7 h-7 flex items-center justify-center text-gray-300 hover:text-red-500 transition-colors disabled:opacity-50"
+                    >
+                      ✕
+                    </button>
+                  ) : (
+                    <span className="flex-shrink-0 w-7 h-7" aria-hidden="true" />
+                  )}
                 </div>
               )
             })}

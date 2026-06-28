@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
-import { fetchAllWorkers } from '../lib/assignments'
+import { fetchAllWorkers, fetchPresentWorkerIds } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
 import { fetchBatchesForSupervisorDate } from '../lib/batches'
 import { fetchVehicles } from '../lib/vehicles'
@@ -41,9 +41,11 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
   // false on every date change — no synchronous reset needed in the effect.
   useEffect(() => {
     let active = true
-    fetchAllWorkers().then(({ data }) => {
+    Promise.all([fetchAllWorkers(), fetchPresentWorkerIds(date)]).then(([{ data }, { data: presentIds }]) => {
       if (!active) return
-      setPool((data || []).filter((w) => !isDirector(w)))
+      const present = new Set(presentIds || [])
+      // Fix 4: gate the batch pool to workers marked present (attendance) for the date.
+      setPool((data || []).filter((w) => !isDirector(w) && present.has(w.id)))
       setPoolLoaded(true)
     })
     return () => { active = false }
