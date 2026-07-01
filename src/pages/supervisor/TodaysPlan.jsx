@@ -73,20 +73,27 @@ export default function TodaysPlan() {
   // saved batches for the selected date and auto-switch into Batch Mode so the
   // supervisor sees their own saved work. Only ever ENABLES (never fights a
   // manual toggle-off within the same date); re-runs when the date changes.
+  //
+  // Fix A (batch mode): when an accepted collaboration exists, the canonical
+  // batch set is owned by the INITIATOR — so a collaborator's own supervisor_id
+  // would count zero even when the shared plan has batches, leaving them stuck
+  // in SinglePlan. Gate on canonicalOwnerId (initiator when collaborating, else
+  // self) so the auto-switch fires on the shared set the collaborator actually
+  // needs to see.
   useEffect(() => {
-    const myId = user?.id
-    if (!myId) return
+    const ownerId = canonicalOwnerId
+    if (!ownerId) return
     let active = true
     ;(async () => {
       const { count } = await supabase
         .from('today_team_batches')
         .select('id', { count: 'exact', head: true })
-        .eq('supervisor_id', myId)
+        .eq('supervisor_id', ownerId)
         .eq('date', date)
       if (active && count > 0) setBatchMode(true)
     })()
     return () => { active = false }
-  }, [user?.id, date])
+  }, [canonicalOwnerId, date])
 
   return (
     <DashboardShell title="Today's plan">
@@ -150,10 +157,11 @@ export default function TodaysPlan() {
 
         {batchMode ? (
           <BatchPlanBuilder
-            key={date}
+            key={`${date}|${canonicalOwnerId || user?.id}`}
             date={date}
             supervisorId={user?.id}
             supervisorName={profile?.full_name}
+            canonicalOwnerId={canonicalOwnerId || user?.id}
           />
         ) : (
           <SinglePlan

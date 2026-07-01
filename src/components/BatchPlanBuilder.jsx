@@ -94,10 +94,30 @@ function batchToForm(dbBatch, date) {
  * to Directors / Site Incharges, and closes the wizard. Each collapsed card has
  * an "Edit" button that re-opens that batch in the form and re-saves in place.
  *
- * Props: { date, supervisorId, supervisorName }
+ * Fix A (batch mode): when an accepted collaboration exists for the date, both
+ * supervisors share ONE canonical batch set owned by `canonicalOwnerId` (the
+ * collab INITIATOR). All reads AND writes here go through that id, so either
+ * side can add/edit and the other sees it. Solo, canonicalOwnerId falls back to
+ * this supervisor's own id and everything behaves as before.
+ *
+ * Props: { date, supervisorId, supervisorName, canonicalOwnerId }
+ *   - supervisorId       — the CURRENT user (for claim filtering, notifications)
+ *   - canonicalOwnerId   — the batches' owner (initiator when collaborating)
+ * The "Collaborating with …" banner is rendered by TodaysPlan.jsx at the parent
+ * level, so BatchPlanBuilder doesn't need collabPartner itself — its own accepted
+ * collaborators are fetched below via fetchAcceptedCollaboratorIds().
  */
-export default function BatchPlanBuilder({ date, supervisorId, supervisorName }) {
+export default function BatchPlanBuilder({
+  date,
+  supervisorId,
+  supervisorName,
+  canonicalOwnerId,
+}) {
   const dfltTimes = defaultWorkTimes(date)
+  // Fix A: reads/writes target the canonical owner (initiator when collaborating,
+  // else this supervisor). Notifications, worker-claim filtering, and the
+  // collaborators picker still key off the CURRENT user (supervisorId).
+  const ownerId = canonicalOwnerId || supervisorId
 
   // savedBatches — this supervisor's persisted batches for the date, shown as
   // collapsed editable cards. currentBatch — the form being filled (null when
@@ -149,22 +169,25 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
   }, [])
 
   // ── Saved batches for the date (collapsed cards) ───────────
+  // Fix A: read the CANONICAL owner's batches (initiator when collaborating).
+  // A collaborator's own supervisor_id yields none because writes are reassigned
+  // to the initiator below, matching how single-mode reads the initiator's row.
   const refreshSaved = useCallback(async () => {
-    if (!supervisorId) return
-    const { data } = await fetchBatchesForSupervisorDate(supervisorId, date)
+    if (!ownerId) return
+    const { data } = await fetchBatchesForSupervisorDate(ownerId, date)
     setSavedBatches(data || [])
     return data || []
-  }, [supervisorId, date])
+  }, [ownerId, date])
 
   useEffect(() => {
     let active = true
     ;(async () => {
-      if (!supervisorId) return
-      const { data } = await fetchBatchesForSupervisorDate(supervisorId, date)
+      if (!ownerId) return
+      const { data } = await fetchBatchesForSupervisorDate(ownerId, date)
       if (active) setSavedBatches(data || [])
     })()
     return () => { active = false }
-  }, [supervisorId, date])
+  }, [ownerId, date])
 
   // ── Claimed workers across ALL supervisors (single + batch surfaces) ───────
   // Re-fetched after every save so a freshly-claimed worker greys out for peers
@@ -187,6 +210,29 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     })()
     return () => { active = false }
   }, [supervisorId, date])
+
+  // Fix A: live two-way sync of the canonical batch set. Subscribe to inserts /
+  // updates / deletes on today_team_batches for THIS owner and re-pull the
+  // collapsed cards so either supervisor sees the other's add/edit/save without
+  // a manual refresh. Same channel-per-owner pattern as single-mode's work_plans
+  // subscription (Fix A). Also watch batch_worker_assignments so a roster-only
+  // change (updateBatchRecord re-inserts assignment rows) triggers a refresh
+  // even when the parent today_team_batches row's own columns didn't change.
+  // Requires today_team_batches + batch_worker_assignments in the realtime
+  // publication and matching collaborator RLS (migration 52-collab-batch-rw.sql).
+  useEffect(() => {
+    if (!ownerId) return
+    const channel = supabase
+      .channel(`batch-plan-sync-${date}-${ownerId}`)
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'today_team_batches', filter: `supervisor_id=eq.${ownerId}` },
+        () => { refreshSaved(); refreshClaimed() })
+      .on('postgres_changes',
+        { event: '*', schema: 'public', table: 'batch_worker_assignments' },
+        () => { refreshSaved(); refreshClaimed() })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [date, ownerId, refreshSaved, refreshClaimed])
 
   // Worker ids locked by OTHER saved batches (a worker can only be in one batch
   // per day). The batch currently being edited is excluded so its own roster
@@ -308,9 +354,12 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
       ? (savedBatches.find((x) => x.id === editingId)?.batch_number || nextBatchNumber())
       : nextBatchNumber()
     const batchName = b.name?.trim() || `Batch ${number}`
+    // Fix A: NEW batches created by either collaborator carry the initiator's
+    // supervisor_id so both see the same canonical row. In-place updates are
+    // keyed by batch id and don't change ownership.
     const res = editingId
       ? await updateBatchRecord({ id: editingId, batchName, projectDescription, projectLocation, tasks, workers: b.workers, metadata })
-      : await createBatch({ supervisorId, date, batchNumber: number, batchName, projectDescription, projectLocation, tasks, workers: b.workers, metadata })
+      : await createBatch({ supervisorId: ownerId, date, batchNumber: number, batchName, projectDescription, projectLocation, tasks, workers: b.workers, metadata })
     if (res.error) {
       setError(`Couldn't save "${batchName}": ${res.error.message}`)
       return false
