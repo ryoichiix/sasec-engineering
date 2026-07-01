@@ -62,15 +62,24 @@ export default function CollaboratorsCard({ userId, userName, date }) {
 
     // Notify only the newly-tagged supervisors. Reference the exact link row so
     // the recipient can Accept / Decline it straight from the notification.
+    // Best-effort: the collaboration rows are already saved, so a notification
+    // failure must never block the save — but we surface it in the console
+    // (checking the RPC's returned error + a try/catch) rather than letting it
+    // fail silently, the recurring notify_user gap in this app.
     for (const link of added) {
-      await notifyUser({
-        userId: link.collaborator_id,
-        type: 'collaboration_request',
-        title: 'Collaboration request',
-        message: `${userName || 'A supervisor'} tagged you as working together on ${formatDate(date)}. Your work plans will be linked in the feed.`,
-        referenceId: link.id,
-        referenceType: 'collaboration',
-      })
+      try {
+        const { error: notifyErr } = await notifyUser({
+          userId: link.collaborator_id,
+          type: 'collaboration_request',
+          title: 'Collaboration request',
+          message: `${userName || 'A supervisor'} tagged you as working together on ${formatDate(date)}. Your work plans will be linked in the feed.`,
+          referenceId: link.id,
+          referenceType: 'collaboration',
+        })
+        if (notifyErr) console.error('collaboration_request notifyUser failed for', link.collaborator_id, notifyErr)
+      } catch (e) {
+        console.error('collaboration_request notifyUser threw for', link.collaborator_id, e)
+      }
     }
     setInitialSelected(selectedCollaborators)
     setSaved(true)

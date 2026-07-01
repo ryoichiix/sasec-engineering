@@ -11,8 +11,10 @@ import { fetchSiteReportsRange } from '../lib/work-plans'
 import { fetchAssignmentsRange } from '../lib/assignments'
 import { fetchBatchesRange } from '../lib/batches'
 import { fetchCollaborationsRange, buildCollabMap, buildAcceptedMerges } from '../lib/collaborations'
+import { markWorkFeedViewed } from '../lib/work-feed'
 import { supabase } from '../lib/supabase'
 import { formatDate, formatDateTime } from '../lib/dates'
+import { useAuth } from '../contexts/auth-context'
 
 const DAYS_BACK = 30
 
@@ -40,7 +42,14 @@ function dedupeTeam(list) {
 }
 
 export default function BossWorkFeed() {
+  const { user } = useAuth()
   const [tab, setTab] = useState('updates') // 'updates' | 'reports'
+
+  // Bug 2: opening the feed marks everything up to now as "seen", resetting the
+  // sidebar unread badge on the next render.
+  useEffect(() => {
+    if (user?.id) markWorkFeedViewed(user.id)
+  }, [user?.id])
 
   return (
     <DashboardShell title="Work feed" accent="bg-amber-500">

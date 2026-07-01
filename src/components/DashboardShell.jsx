@@ -4,6 +4,7 @@ import { Menu, LogOut, X } from 'lucide-react'
 import { useAuth } from '../contexts/auth-context'
 import { NAV_LINKS } from '../lib/nav'
 import { fetchPendingApprovalCounts } from '../lib/approvals'
+import { getWorkFeedLastViewed, markWorkFeedViewed, fetchWorkFeedUnreadCount } from '../lib/work-feed'
 import NotificationBell from './NotificationBell'
 import BottomNav from './BottomNav'
 
@@ -30,6 +31,29 @@ export default function DashboardShell({ title, children }) {
     })
     return () => { isMounted = false }
   }, [role, isFM])
+
+  // Bug 2: Work Feed "unread" badge. Only roles with a Work Feed link (Director,
+  // Site Incharge) compute it. Like pendingApprovals, this refetches whenever
+  // DashboardShell mounts — which happens on every route change — so the count
+  // stays fresh without a subscription. On the very first load we seed the
+  // baseline to "now" so historical rows don't show a misleading count; opening
+  // the feed later re-stamps it (see markWorkFeedViewed in the feed pages).
+  const hasWorkFeed = links.some((item) => item.to.endsWith('/work-feed'))
+  const [workFeedUnread, setWorkFeedUnread] = useState(0)
+  useEffect(() => {
+    const userId = user?.id
+    if (!hasWorkFeed || !userId) return
+    let since = getWorkFeedLastViewed(userId)
+    if (!since) {
+      markWorkFeedViewed(userId)
+      since = new Date().toISOString()
+    }
+    let isMounted = true
+    fetchWorkFeedUnreadCount(userId, since).then((n) => {
+      if (isMounted) setWorkFeedUnread(n)
+    })
+    return () => { isMounted = false }
+  }, [hasWorkFeed, user?.id])
 
   const roleBadge =
     role === 'boss'
@@ -77,6 +101,15 @@ export default function DashboardShell({ title, children }) {
         <nav className="flex-1 overflow-y-auto px-3 py-4 space-y-0.5">
           {links.map((item) => {
             const Icon = item.icon
+            // Each badge draws from its own source: Work Feed shows new-feed
+            // activity, Approvals shows the pending-review queue. (Previously
+            // both fmOnly links reused pendingApprovals, so Work Feed wrongly
+            // mirrored the Approvals count.)
+            const badgeCount = item.to.endsWith('/work-feed')
+              ? workFeedUnread
+              : item.to.endsWith('/approvals')
+              ? pendingApprovals
+              : 0
             return (
               <NavLink
                 key={item.to}
@@ -91,9 +124,9 @@ export default function DashboardShell({ title, children }) {
               >
                 {Icon && <Icon className="h-[18px] w-[18px] flex-shrink-0" strokeWidth={1.9} />}
                 <span className="truncate">{item.label}</span>
-                {item.fmOnly && pendingApprovals > 0 && (
+                {badgeCount > 0 && (
                   <span className="ml-auto h-5 min-w-[1.25rem] px-1 bg-[#C0272D] text-white text-[10px] font-bold rounded-full flex items-center justify-center leading-none flex-shrink-0">
-                    {pendingApprovals > 99 ? '99+' : pendingApprovals}
+                    {badgeCount > 99 ? '99+' : badgeCount}
                   </span>
                 )}
               </NavLink>

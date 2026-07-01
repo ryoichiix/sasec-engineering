@@ -65,6 +65,27 @@ export default function TodaysPlan() {
     return () => { active = false }
   }, [user?.id, date])
 
+  // Bug 3: saved batches live in today_team_batches, but batchMode reset to false
+  // on every (re)mount — so returning to Today's Plan showed an empty SinglePlan
+  // even when batches existed, until the user toggled Batch Mode off/on. Detect
+  // saved batches for the selected date and auto-switch into Batch Mode so the
+  // supervisor sees their own saved work. Only ever ENABLES (never fights a
+  // manual toggle-off within the same date); re-runs when the date changes.
+  useEffect(() => {
+    const myId = user?.id
+    if (!myId) return
+    let active = true
+    ;(async () => {
+      const { count } = await supabase
+        .from('today_team_batches')
+        .select('id', { count: 'exact', head: true })
+        .eq('supervisor_id', myId)
+        .eq('date', date)
+      if (active && count > 0) setBatchMode(true)
+    })()
+    return () => { active = false }
+  }, [user?.id, date])
+
   return (
     <DashboardShell title="Today's plan">
       <div className="max-w-2xl mx-auto">

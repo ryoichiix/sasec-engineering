@@ -12,6 +12,7 @@ import { fetchSiteReportsRange } from '../../lib/work-plans'
 import { fetchAssignmentsRange } from '../../lib/assignments'
 import { fetchBatchesRange } from '../../lib/batches'
 import { fetchCollaborationsRange, buildCollabMap, buildAcceptedMerges } from '../../lib/collaborations'
+import { markWorkFeedViewed } from '../../lib/work-feed'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatDateTime } from '../../lib/dates'
 import { useAuth } from '../../contexts/auth-context'
@@ -42,9 +43,15 @@ function dedupeTeam(list) {
 }
 
 export default function SiteInchargeWorkFeed() {
-  const { profile } = useAuth()
+  const { profile, user } = useAuth()
   const isFM = profile?.field_manager === true
   const [tab, setTab] = useState('updates') // 'updates' | 'reports'
+
+  // Bug 2: opening the feed marks everything up to now as "seen", resetting the
+  // sidebar unread badge on the next render.
+  useEffect(() => {
+    if (user?.id) markWorkFeedViewed(user.id)
+  }, [user?.id])
 
   // Not a Site Incharge — this page has nothing to show them.
   if (profile && !isFM) return <Navigate to="/supervisor" replace />
