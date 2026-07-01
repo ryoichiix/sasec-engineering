@@ -21,6 +21,25 @@ export function fetchOtherSupervisors(userId) {
     .order('full_name')
 }
 
+/**
+ * Ids of this user's ACCEPTED collaborators for a date (either side of the link).
+ * Used by the worker pickers to treat a shared collaboration pool as NOT
+ * "claimed by another supervisor" — those workers are shared, not external.
+ * Read-only; does not touch the collaboration accept/sync flow.
+ */
+export async function fetchAcceptedCollaboratorIds(userId, date) {
+  if (!userId) return { data: [], error: null }
+  const { data, error } = await supabase
+    .from('work_plan_collaborations')
+    .select('initiator_id, collaborator_id')
+    .or(`initiator_id.eq.${userId},collaborator_id.eq.${userId}`)
+    .eq('date', date)
+    .eq('status', 'accepted')
+  if (error) return { data: [], error }
+  const ids = (data || []).map((r) => (r.initiator_id === userId ? r.collaborator_id : r.initiator_id))
+  return { data: [...new Set(ids)], error: null }
+}
+
 /** Collaboration links THIS user initiated for a date (used to prefill the picker). */
 export function fetchCollaborationsForDate(userId, date) {
   return supabase

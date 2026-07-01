@@ -1,4 +1,6 @@
 import { supabase } from './supabase'
+import { fetchBatchClaimsForDate } from './batches'
+import { buildClaimedMap } from './claims'
 
 /**
  * Workers marked present on `date`, read from the workers table.
@@ -64,6 +66,25 @@ export function fetchAssignmentsForDate(date) {
     .from('daily_assignments')
     .select('id, worker_id, worker_table_id, supervisor_id, assignment_date, project_name, project_location, task_assigned')
     .eq('assignment_date', date)
+}
+
+/**
+ * Every worker claimed on `date`, across ALL supervisors and BOTH claim surfaces
+ * — single mode (daily_assignments) and batch mode (today_team_batches). Returns
+ * { data: Map<worker_id, Set<supervisor_id>>, error }. Callers pass the map to
+ * buildExternalClaimIds / buildPartnerHeldIds (lib/claims) with their own id and
+ * accepted-collaborator ids to decide what to grey out. The batch half degrades
+ * gracefully: if it errors (RLS/table), we still return the daily-assignments
+ * claims rather than failing the whole picker.
+ */
+export async function fetchClaimedWorkerMap(date) {
+  const [assignRes, batchRes] = await Promise.all([
+    fetchAssignmentsForDate(date),
+    fetchBatchClaimsForDate(date),
+  ])
+  if (assignRes.error) return { data: new Map(), error: assignRes.error }
+  const data = buildClaimedMap(assignRes.data || [], batchRes?.error ? [] : (batchRes?.data || []))
+  return { data, error: null }
 }
 
 /**

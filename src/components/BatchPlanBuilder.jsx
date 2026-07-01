@@ -1,9 +1,11 @@
 import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
-import { fetchAllWorkers, fetchPresentWorkerIds } from '../lib/assignments'
+import { fetchAllWorkers, fetchPresentWorkerIds, fetchClaimedWorkerMap } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
 import { fetchBatchesForSupervisorDate, createBatch, updateBatchRecord, checkEquipmentConflicts } from '../lib/batches'
+import { fetchAcceptedCollaboratorIds } from '../lib/collaborations'
+import { buildExternalClaimIds } from '../lib/claims'
 import { fetchVehicles } from '../lib/vehicles'
 import { notifyUser } from '../lib/notifications'
 import CollaboratorsCard from './CollaboratorsCard'
@@ -117,6 +119,13 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
   const [poolLoaded, setPoolLoaded] = useState(false)
   const [vehicles, setVehicles] = useState([])
 
+  // Claimed-worker filtering. claimedMap: worker_id -> Set<supervisor_id> holding
+  // that worker for the date, folded from daily_assignments AND every
+  // supervisor's today_team_batches. partnerIds: this supervisor's accepted
+  // collaborators (their shared pool must NOT be treated as an external claim).
+  const [claimedMap, setClaimedMap] = useState(() => new Map())
+  const [partnerIds, setPartnerIds] = useState([])
+
   // ── Load present workers for the date ──────────────────────
   useEffect(() => {
     let active = true
@@ -157,6 +166,28 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     return () => { active = false }
   }, [supervisorId, date])
 
+  // ── Claimed workers across ALL supervisors (single + batch surfaces) ───────
+  // Re-fetched after every save so a freshly-claimed worker greys out for peers
+  // immediately without a manual refresh.
+  const refreshClaimed = useCallback(async () => {
+    const { data } = await fetchClaimedWorkerMap(date)
+    setClaimedMap(data || new Map())
+  }, [date])
+
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      const [{ data: claims }, { data: partners }] = await Promise.all([
+        fetchClaimedWorkerMap(date),
+        fetchAcceptedCollaboratorIds(supervisorId, date),
+      ])
+      if (!active) return
+      setClaimedMap(claims || new Map())
+      setPartnerIds(partners || [])
+    })()
+    return () => { active = false }
+  }, [supervisorId, date])
+
   // Worker ids locked by OTHER saved batches (a worker can only be in one batch
   // per day). The batch currently being edited is excluded so its own roster
   // stays selectable.
@@ -168,6 +199,14 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     }
     return s
   }, [savedBatches, editingId])
+
+  // Worker ids claimed by ANOTHER supervisor (single mode or their own batches),
+  // excluding this supervisor and their accepted collaborators. Greyed out in the
+  // picker alongside lockedWorkerIds to prevent cross-supervisor double-booking.
+  const externalClaimIds = useMemo(
+    () => buildExternalClaimIds(claimedMap, { selfId: supervisorId, partnerIds }),
+    [claimedMap, supervisorId, partnerIds]
+  )
 
   const nextBatchNumber = () =>
     Math.max(0, ...savedBatches.map((b) => b.batch_number || 0)) + 1
@@ -312,6 +351,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     const ok = await persistCurrent()
     if (ok) {
       await refreshSaved()
+      await refreshClaimed()
       setCurrentBatch(emptyBatch(date))
       setEditingId(null)
       setSuccess('Batch saved. Fill the next one below, or tap Finish.')
@@ -324,6 +364,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     const ok = await persistCurrent()
     if (ok) {
       await refreshSaved()
+      await refreshClaimed()
       setCurrentBatch(null)
       setEditingId(null)
       setSuccess('Batch updated.')
@@ -340,6 +381,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
       if (!ok) { setSaving(false); return }
     }
     const list = await refreshSaved()
+    await refreshClaimed()
     if (!list || list.length === 0) {
       setError('Add at least one worker to a batch before finishing.')
       setSaving(false)
@@ -816,16 +858,22 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                   const displayName = worker.full_name || 'Unnamed worker'
                   const inCurrent = currentBatch.workers.some((w) => w.id === worker.id)
                   const inOtherBatch = lockedWorkerIds.has(worker.id)
+                  // Claimed by another supervisor (single mode OR their own batch),
+                  // excluding this supervisor and accepted collaborators → greyed +
+                  // unselectable. inCurrent picks stay removable even if a peer
+                  // claims them mid-edit.
+                  const isExternal = externalClaimIds.has(worker.id)
+                  const blocked = inOtherBatch || isExternal
                   return (
                     <button
                       key={worker.id}
                       type="button"
-                      onClick={() => { if (!inOtherBatch) toggleWorker(worker) }}
-                      disabled={inOtherBatch}
+                      onClick={() => { if (inCurrent || !blocked) toggleWorker(worker) }}
+                      disabled={!inCurrent && blocked}
                       className={`appearance-none w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
                         inCurrent
                           ? 'bg-[#0F172A] border-[#0F172A]'
-                          : inOtherBatch
+                          : blocked
                           ? 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
                           : 'bg-white border-gray-100 hover:border-gray-300'
                       }`}
@@ -846,7 +894,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                           {displayName}
                         </p>
                         <p className={`text-xs ${inCurrent ? 'text-gray-300' : 'text-gray-400'}`}>
-                          {worker.designation_name} {inOtherBatch ? '· In another batch' : ''}
+                          {worker.designation_name} {!inCurrent && inOtherBatch ? '· In another batch' : !inCurrent && isExternal ? '· On another team' : ''}
                         </p>
                       </div>
                       {inCurrent && <span className="text-white text-sm">✓</span>}

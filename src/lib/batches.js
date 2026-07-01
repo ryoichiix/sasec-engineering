@@ -66,6 +66,21 @@ export function fetchBatchesForDate(date) {
     .eq('date', date)
 }
 
+/**
+ * Batch-mode claims for a date across EVERY supervisor — each batch's owner plus
+ * its denormalized `worker_ids` roster. Feeds the worker-picker "already claimed"
+ * set so batch claims grey out in both pickers (worker_ids is written alongside
+ * batch_worker_assignments in createBatch/updateBatchRecord, so it mirrors the
+ * assignment rows without needing the join). Same RLS caveat as fetchBatchesForDate:
+ * if peers' today_team_batches rows aren't readable this degrades to own claims.
+ */
+export function fetchBatchClaimsForDate(date) {
+  return supabase
+    .from('today_team_batches')
+    .select('supervisor_id, worker_ids')
+    .eq('date', date)
+}
+
 // Two [in, out) ranges overlap iff each starts strictly before the other ends.
 // Times are zero-padded "HH:MM" (24h), so lexicographic compare == chronological.
 export function timesOverlap(startA, endA, startB, endB) {

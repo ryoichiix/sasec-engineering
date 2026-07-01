@@ -13,6 +13,8 @@ import {
   releaseWorker,
   updateAssignmentTask,
 } from '../../lib/assignments'
+import { fetchBatchClaimsForDate } from '../../lib/batches'
+import { buildClaimedMap, buildExternalClaimIds, buildPartnerHeldIds } from '../../lib/claims'
 import { fetchSiteReport, saveSiteReport } from '../../lib/work-plans'
 import { fetchVehicles } from '../../lib/vehicles'
 import { notifyUser } from '../../lib/notifications'
@@ -176,6 +178,7 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
   // ── Team (daily_assignments) ───────────────────────────────
   const [workers, setWorkers] = useState([])      // present workers for the date
   const [assignments, setAssignments] = useState([])
+  const [batchClaims, setBatchClaims] = useState([]) // [{ supervisor_id, worker_ids }] — batch-mode claims by ALL supervisors, so the picker greys workers claimed via batch mode too
   const [presentIds, setPresentIds] = useState(() => new Set()) // worker ids marked present (attendance) for the date
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
@@ -193,10 +196,11 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     if (inflightRef.current) return
     inflightRef.current = true
     try {
-      const [workersRes, assignRes, presentRes] = await Promise.all([
+      const [workersRes, assignRes, presentRes, batchClaimRes] = await Promise.all([
         fetchAllWorkers(),
         fetchAssignmentsForDate(date),
         fetchPresentWorkerIds(date),
+        fetchBatchClaimsForDate(date),
       ])
       if (workersRes.error || assignRes.error) {
         setError((workersRes.error || assignRes.error).message)
@@ -204,6 +208,9 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
         setError(null)
         setWorkers(workersRes.data || [])
         setAssignments(assignRes.data || [])
+        // Batch claims are best-effort: on error (RLS/table) fall back to none so
+        // the daily-assignments greying below still works.
+        setBatchClaims(batchClaimRes?.error ? [] : (batchClaimRes?.data || []))
         setPresentIds(new Set(presentRes.data || []))
       }
       setLoading(false)
@@ -342,6 +349,29 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     for (const a of assignments) m.set(a.worker_id || a.worker_table_id, a)
     return m
   }, [assignments])
+
+  // Claimed-worker filtering: fold single-mode (daily_assignments) AND batch-mode
+  // (today_team_batches) claims from ALL supervisors into one map, then split into
+  // — externalClaimIds: held by a supervisor who is neither me nor an accepted
+  //   collaborator → greyed + unselectable (prevents double-booking).
+  // — partnerHeldIds: held only by an accepted collaborator → shared pool, shown
+  //   as already-in-team rather than external (Fix 2).
+  const partnerIds = useMemo(
+    () => (collabPartner?.partnerId ? [collabPartner.partnerId] : []),
+    [collabPartner]
+  )
+  const claimedMap = useMemo(
+    () => buildClaimedMap(assignments, batchClaims),
+    [assignments, batchClaims]
+  )
+  const externalClaimIds = useMemo(
+    () => buildExternalClaimIds(claimedMap, { selfId: myId, partnerIds }),
+    [claimedMap, myId, partnerIds]
+  )
+  const partnerHeldIds = useMemo(
+    () => buildPartnerHeldIds(claimedMap, { selfId: myId, partnerIds }),
+    [claimedMap, myId, partnerIds]
+  )
 
   // Fix 2: with an accepted collaboration for the date, the team is the combined
   // unique roster of BOTH supervisors. Partner-claimed workers are flagged
@@ -961,17 +991,21 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
                 pickerList.map((worker) => {
                   const asn = assignmentByWorker.get(worker.id)
                   const isMine = asn?.supervisor_id === myId
-                  const isOther = !!asn && !isMine
+                  // isExternal: claimed by another supervisor via single OR batch mode → greyed, unselectable.
+                  // isShared: held only by an accepted collaborator → shown as shared-team, not external (Fix 2).
+                  const isExternal = externalClaimIds.has(worker.id)
+                  const isShared = partnerHeldIds.has(worker.id)
                   const busy = !!pending[worker.id]
+                  const blocked = isExternal || isShared || busy
                   const displayName = String(worker.full_name || worker.name || 'Unknown')
                   return (
                     <button
                       key={worker.id}
                       type="button"
-                      disabled={isOther || busy}
+                      disabled={blocked}
                       onClick={() => {
                         console.log('[picker] tapped:', displayName)
-                        if (isOther || busy) return
+                        if (blocked) return
                         if (isMine) release(worker)
                         else claim(worker)
                       }}
@@ -985,9 +1019,9 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
                         marginBottom: 6,
                         borderRadius: 12,
                         border: isMine ? '1px solid #0f172a' : '1px solid #f3f4f6',
-                        background: isMine ? '#0f172a' : isOther ? '#f9fafb' : '#ffffff',
-                        cursor: isOther || busy ? 'not-allowed' : 'pointer',
-                        opacity: isOther ? 0.5 : 1,
+                        background: isMine ? '#0f172a' : isExternal ? '#f9fafb' : isShared ? '#f5f3ff' : '#ffffff',
+                        cursor: blocked ? 'not-allowed' : 'pointer',
+                        opacity: isExternal ? 0.5 : 1,
                         textAlign: 'left',
                         boxSizing: 'border-box',
                         overflow: 'hidden',
@@ -1019,7 +1053,7 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
                           color: isMine ? '#d1d5db' : '#6b7280',
                           whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
                         }}>
-                          {(worker.designation_name || worker.designation || '')}{isOther ? ' · On another team' : ''}
+                          {(worker.designation_name || worker.designation || '')}{isExternal ? ' · On another team' : isShared ? ` · ${collabPartner?.name || 'Shared'}` : ''}
                         </p>
                       </div>
 
