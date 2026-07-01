@@ -1,66 +1,133 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useCallback, useMemo } from 'react'
 import { createPortal } from 'react-dom'
 import { supabase } from '../lib/supabase'
 import { fetchAllWorkers, fetchPresentWorkerIds } from '../lib/assignments'
 import { isDirector } from '../lib/workers'
-import { fetchBatchesForSupervisorDate } from '../lib/batches'
+import { fetchBatchesForSupervisorDate, createBatch, updateBatchRecord, checkEquipmentConflicts } from '../lib/batches'
 import { fetchVehicles } from '../lib/vehicles'
 import { notifyUser } from '../lib/notifications'
-import BatchTeamList from './BatchTeamList'
 import CollaboratorsCard from './CollaboratorsCard'
 import { formatDate } from '../lib/dates'
-import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, OT_TIMES } from '../lib/plan-options'
+import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, generateOtTimes, defaultWorkTimes } from '../lib/plan-options'
 
-const emptyBatch = () => ({ id: crypto.randomUUID(), name: '', workers: [], location: '', tasks: [] })
+// Equipment categories → the vehicle_type keywords that populate each dropdown.
+const EQUIPMENT_TYPES = [
+  { key: 'crane', label: 'Crane', types: ['CRANE', 'BOOM LIFT'] },
+  { key: 'hydra', label: 'Hydra', types: ['HYDRA'] },
+  { key: 'trawler', label: 'Trawler', types: ['LORRY'] },
+  { key: 'cherry_picker', label: 'Cherry Picker', types: ['CAMPER', 'KIA', 'MARUTI', 'MAHINDRA', 'CRETA', 'EICHER', 'INDICA', 'ALTO', 'BUSS'] },
+]
+
+// Feature 1: seed each new batch's timing from the selected date's day-of-week
+// default (Sun → 08:00–13:00, else 08:00–17:00). Still overridable per batch.
+const emptyBatch = (date) => {
+  const { from, to } = defaultWorkTimes(date)
+  return {
+    id: crypto.randomUUID(),
+    name: '',
+    workers: [],
+    tasks: [],
+    project_description: '', custom_project: '',
+    project_location: '', custom_location: '',
+    timing_from: from, timing_to: to,
+    custom_task_input: '',
+    crane: '', hydra: '', trawler: '', cherry_picker: '',
+    ot_planned: false, ot_from: '', ot_to: '',
+  }
+}
+
+// Rehydrate a persisted batch (from fetchBatchesForSupervisorDate) back into the
+// editable form shape when the supervisor taps "Edit" on a collapsed card. The
+// full plan lives in metadata; workers come from the embedded assignments join.
+function batchToForm(dbBatch, date) {
+  const meta = dbBatch.metadata || {}
+  const dflt = defaultWorkTimes(date)
+  const eqByCat = {}
+  for (const e of (meta.equipment || [])) if (e?.category) eqByCat[e.category] = e
+  const projDesc = dbBatch.project_description ?? meta.project_description ?? ''
+  const projLoc = dbBatch.project_location ?? meta.project_location ?? ''
+  const workers = (dbBatch.assignments || [])
+    .filter((a) => a.worker?.id)
+    .map((a) => ({
+      id: a.worker.id,
+      full_name: a.worker.full_name,
+      designation_name: a.worker.designations?.name,
+    }))
+  return {
+    id: dbBatch.id,
+    name: dbBatch.batch_name || '',
+    workers,
+    tasks: dbBatch.tasks || [],
+    project_description: PROJECT_OPTIONS.includes(projDesc) ? projDesc : (projDesc ? '__custom__' : ''),
+    custom_project: PROJECT_OPTIONS.includes(projDesc) ? '' : (projDesc || ''),
+    project_location: LOCATION_OPTIONS.includes(projLoc) ? projLoc : (projLoc ? '__custom__' : ''),
+    custom_location: LOCATION_OPTIONS.includes(projLoc) ? '' : (projLoc || ''),
+    timing_from: meta.timing_from || dflt.from,
+    timing_to: meta.timing_to || dflt.to,
+    custom_task_input: '',
+    crane: meta.crane || '',
+    hydra: meta.hydra || '',
+    trawler: meta.trawler || '',
+    cherry_picker: meta.cherry_picker || '',
+    crane_time_in: eqByCat.crane?.time_in || '',
+    crane_time_out: eqByCat.crane?.time_out || '',
+    hydra_time_in: eqByCat.hydra?.time_in || '',
+    hydra_time_out: eqByCat.hydra?.time_out || '',
+    trawler_time_in: eqByCat.trawler?.time_in || '',
+    trawler_time_out: eqByCat.trawler?.time_out || '',
+    cherry_picker_time_in: eqByCat.cherry_picker?.time_in || '',
+    cherry_picker_time_out: eqByCat.cherry_picker?.time_out || '',
+    ot_planned: !!meta.ot_planned,
+    ot_from: meta.ot_from || '',
+    ot_to: meta.ot_to || '',
+  }
+}
 
 /**
- * Batch Mode: split today's team into multiple groups, each with its own full
- * work plan (project, timing, tasks, equipment, OT). Saves to
- * today_team_batches + batch_worker_assignments and notifies Director / Site
- * Incharge. Self-contained — loads its own present-worker pool, fleet, and the
- * read-only summary of already-submitted batches for the date.
+ * Batch Mode — SEQUENTIAL WIZARD (Feature 2). The supervisor fills one batch at
+ * a time; "Save & Add Next Batch" persists it to today_team_batches +
+ * batch_worker_assignments immediately and collapses it into a compact summary
+ * card above, then presents a fresh empty form. "Finish" saves the in-progress
+ * batch (if it has workers), fires a single "batch teams submitted" notification
+ * to Directors / Site Incharges, and closes the wizard. Each collapsed card has
+ * an "Edit" button that re-opens that batch in the form and re-saves in place.
  *
  * Props: { date, supervisorId, supervisorName }
  */
 export default function BatchPlanBuilder({ date, supervisorId, supervisorName }) {
-  const [batches, setBatches] = useState([emptyBatch()])
-  const [pickingForBatch, setPickingForBatch] = useState(null) // batch index
-  const [savingBatches, setSavingBatches] = useState(false)
-  const [batchSuccess, setBatchSuccess] = useState(null)
+  const dfltTimes = defaultWorkTimes(date)
+
+  // savedBatches — this supervisor's persisted batches for the date, shown as
+  // collapsed editable cards. currentBatch — the form being filled (null when
+  // the wizard is idle after Finish). editingId — the DB id when the current
+  // form is an in-place edit of an existing batch (else null → insert).
+  const [savedBatches, setSavedBatches] = useState([])
+  const [currentBatch, setCurrentBatch] = useState(() => emptyBatch(date))
+  const [editingId, setEditingId] = useState(null)
+
+  const [showPicker, setShowPicker] = useState(false)
+  const [saving, setSaving] = useState(false)
   const [error, setError] = useState(null)
-  const [savedBatches, setSavedBatches] = useState([]) // already-submitted batches for this date
-  const [vehicles, setVehicles] = useState([])         // fleet, for equipment dropdowns
+  const [success, setSuccess] = useState(null)
+  const [conflicts, setConflicts] = useState([]) // Feature 3: equipment double-booking warnings
 
   // Present-worker pool. poolLoaded gates the picker so cards never render
   // before names are available (avoids blank cards).
   const [pool, setPool] = useState([])
   const [poolLoaded, setPoolLoaded] = useState(false)
+  const [vehicles, setVehicles] = useState([])
 
   // ── Load present workers for the date ──────────────────────
-  // The parent remounts this component with key={date}, so poolLoaded starts
-  // false on every date change — no synchronous reset needed in the effect.
   useEffect(() => {
     let active = true
     Promise.all([fetchAllWorkers(), fetchPresentWorkerIds(date)]).then(([{ data }, { data: presentIds }]) => {
       if (!active) return
       const present = new Set(presentIds || [])
-      // Fix 4: gate the batch pool to workers marked present (attendance) for the date.
       setPool((data || []).filter((w) => !isDirector(w) && present.has(w.id)))
       setPoolLoaded(true)
     })
     return () => { active = false }
   }, [date])
-
-  // ── Saved batches (read-only summary) ──────────────────────
-  useEffect(() => {
-    let active = true
-    ;(async () => {
-      if (!supervisorId) return
-      const { data } = await fetchBatchesForSupervisorDate(supervisorId, date)
-      if (active) setSavedBatches(data || [])
-    })()
-    return () => { active = false }
-  }, [supervisorId, date])
 
   // ── Fleet for equipment dropdowns (loaded once) ────────────
   useEffect(() => {
@@ -72,96 +139,150 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     return () => { active = false }
   }, [])
 
-  // ── Batch actions ──────────────────────────────────────────
-  const addBatch = () => setBatches((prev) => [...prev, emptyBatch()])
-  const removeBatch = (idx) => setBatches((prev) => prev.filter((_, i) => i !== idx))
-  const updateBatch = (idx, field, value) =>
-    setBatches((prev) => prev.map((b, i) => (i === idx ? { ...b, [field]: value } : b)))
-  const removeWorkerFromBatch = (batchIdx, workerId) =>
-    setBatches((prev) =>
-      prev.map((b, i) =>
-        i === batchIdx ? { ...b, workers: b.workers.filter((w) => w.id !== workerId) } : b
-      )
-    )
+  // ── Saved batches for the date (collapsed cards) ───────────
+  const refreshSaved = useCallback(async () => {
+    if (!supervisorId) return
+    const { data } = await fetchBatchesForSupervisorDate(supervisorId, date)
+    setSavedBatches(data || [])
+    return data || []
+  }, [supervisorId, date])
 
-  const saveAllBatches = async () => {
-    const filled = batches.filter((b) => b.workers.length > 0)
-    if (filled.length === 0) {
-      setError('Add at least one worker to a batch before saving.')
-      return
+  useEffect(() => {
+    let active = true
+    ;(async () => {
+      if (!supervisorId) return
+      const { data } = await fetchBatchesForSupervisorDate(supervisorId, date)
+      if (active) setSavedBatches(data || [])
+    })()
+    return () => { active = false }
+  }, [supervisorId, date])
+
+  // Worker ids locked by OTHER saved batches (a worker can only be in one batch
+  // per day). The batch currently being edited is excluded so its own roster
+  // stays selectable.
+  const lockedWorkerIds = useMemo(() => {
+    const s = new Set()
+    for (const b of savedBatches) {
+      if (b.id === editingId) continue
+      for (const wid of (b.worker_ids || [])) s.add(wid)
     }
-    setSavingBatches(true)
+    return s
+  }, [savedBatches, editingId])
+
+  const nextBatchNumber = () =>
+    Math.max(0, ...savedBatches.map((b) => b.batch_number || 0)) + 1
+
+  // ── Current-form field helpers ─────────────────────────────
+  const updateField = (field, value) => setCurrentBatch((prev) => ({ ...prev, [field]: value }))
+  const removeWorker = (workerId) =>
+    setCurrentBatch((prev) => ({ ...prev, workers: prev.workers.filter((w) => w.id !== workerId) }))
+  const toggleWorker = (worker) =>
+    setCurrentBatch((prev) => prev.workers.some((w) => w.id === worker.id)
+      ? { ...prev, workers: prev.workers.filter((w) => w.id !== worker.id) }
+      : { ...prev, workers: [...prev.workers, worker] })
+  const toggleTask = (chip) =>
+    setCurrentBatch((prev) => ({
+      ...prev,
+      tasks: (prev.tasks || []).includes(chip)
+        ? prev.tasks.filter((t) => t !== chip)
+        : [...(prev.tasks || []), chip],
+    }))
+  const addCustomTask = () => {
+    const t = currentBatch.custom_task_input?.trim()
+    if (!t) return
+    setCurrentBatch((prev) => ({
+      ...prev,
+      tasks: prev.tasks.includes(t) ? prev.tasks : [...prev.tasks, t],
+      custom_task_input: '',
+    }))
+  }
+
+  // ── Persist the current batch (insert, or update in place when editing) ────
+
+  // Feature 3: structured equipment entries for the selected vehicles, each with
+  // its own time_in/time_out (defaulting to the batch's work timing). Resolves
+  // vehicle_id from the fleet so overlap checks match on identity. Stored inside
+  // metadata.equipment ALONGSIDE the legacy crane/hydra/... string fields the
+  // work feeds still read.
+  const buildEquipment = (b) =>
+    EQUIPMENT_TYPES
+      .map(({ key }) => {
+        const name = b[key]
+        if (!name) return null
+        const vehicle = vehicles.find((v) => `${v.vehicle_type} — ${v.vehicle_no}` === name)
+        return {
+          category: key,
+          vehicle_id: vehicle?.id || null,
+          vehicle_name: name,
+          time_in: b[`${key}_time_in`] || b.timing_from || null,
+          time_out: b[`${key}_time_out`] || b.timing_to || null,
+        }
+      })
+      .filter(Boolean)
+
+  const buildPayload = (b, equipment) => {
+    const projectDescription = b.project_description === '__custom__'
+      ? (b.custom_project?.trim() || null)
+      : (b.project_description || null)
+    const projectLocation = b.project_location === '__custom__'
+      ? (b.custom_location?.trim() || null)
+      : (b.project_location || null)
+    const tasks = b.tasks || []
+    const metadata = {
+      project_description: projectDescription,
+      project_location: projectLocation,
+      timing_from: b.timing_from || null,
+      timing_to: b.timing_to || null,
+      crane: b.crane || null,
+      hydra: b.hydra || null,
+      trawler: b.trawler || null,
+      cherry_picker: b.cherry_picker || null,
+      equipment,
+      ot_planned: !!b.ot_planned,
+      ot_from: b.ot_planned ? (b.ot_from || null) : null,
+      ot_to: b.ot_planned ? (b.ot_to || null) : null,
+    }
+    return { projectDescription, projectLocation, tasks, metadata }
+  }
+
+  // Returns true on success (state updated on failure).
+  const persistCurrent = async () => {
+    const b = currentBatch
+    if (!b || b.workers.length === 0) {
+      setError('Add at least one worker to this batch before saving.')
+      return false
+    }
     setError(null)
-    setBatchSuccess(null)
 
-    let saved = 0
-    for (let i = 0; i < batches.length; i++) {
-      const batch = batches[i]
-      if (batch.workers.length === 0) continue
-
-      const projectDescription = batch.project_description === '__custom__'
-        ? (batch.custom_project?.trim() || null)
-        : (batch.project_description || null)
-      const projectLocation = batch.project_location === '__custom__'
-        ? (batch.custom_location?.trim() || null)
-        : (batch.project_location || null)
-      const batchTasks = batch.tasks || []
-
-      // 1. Save the batch record (full work plan in metadata jsonb)
-      const { data: batchRecord, error: bErr } = await supabase
-        .from('today_team_batches')
-        .insert({
-          supervisor_id: supervisorId,
-          date,
-          batch_name: batch.name?.trim() || `Batch ${i + 1}`,
-          batch_number: i + 1,
-          project_description: projectDescription,
-          project_location: projectLocation,
-          tasks: batchTasks,
-          worker_ids: batch.workers.map((w) => w.id),
-          metadata: {
-            project_description: projectDescription,
-            project_location: projectLocation,
-            timing_from: batch.timing_from || null,
-            timing_to: batch.timing_to || null,
-            crane: batch.crane || null,
-            hydra: batch.hydra || null,
-            trawler: batch.trawler || null,
-            cherry_picker: batch.cherry_picker || null,
-            ot_planned: !!batch.ot_planned,
-            ot_from: batch.ot_planned ? (batch.ot_from || null) : null,
-            ot_to: batch.ot_planned ? (batch.ot_to || null) : null,
-          },
-        })
-        .select()
-        .single()
-
-      if (bErr) {
-        setError(`Couldn't save "${batch.name || `Batch ${i + 1}`}": ${bErr.message}`)
-        setSavingBatches(false)
-        return
-      }
-
-      // 2. Save per-worker assignments for this batch
-      const { error: aErr } = await supabase.from('batch_worker_assignments').insert(
-        batch.workers.map((w) => ({
-          batch_id: batchRecord.id,
-          worker_id: w.id,
-          task: batchTasks.join(', ') || null,
-        }))
-      )
-
-      if (aErr) {
-        setError(`Saved batch "${batchRecord.batch_name}" but worker assignments failed: ${aErr.message}`)
-        setSavingBatches(false)
-        return
-      }
-
-      saved++
+    // Feature 3: block on equipment double-booking against other batches for the date.
+    const equipment = buildEquipment(b)
+    const { data: found } = await checkEquipmentConflicts({ date, equipment, excludeBatchId: editingId })
+    if (found && found.length > 0) {
+      setConflicts(found)
+      setError('Equipment double-booking — resolve the conflict(s) below before saving.')
+      return false
     }
+    setConflicts([])
 
-    // ── Notify Director(s) + Site Incharge(s) that batches were submitted ──
-    // Best-effort: a notification failure must never block/undo a successful save.
+    const { projectDescription, projectLocation, tasks, metadata } = buildPayload(b, equipment)
+    const number = editingId
+      ? (savedBatches.find((x) => x.id === editingId)?.batch_number || nextBatchNumber())
+      : nextBatchNumber()
+    const batchName = b.name?.trim() || `Batch ${number}`
+    const res = editingId
+      ? await updateBatchRecord({ id: editingId, batchName, projectDescription, projectLocation, tasks, workers: b.workers, metadata })
+      : await createBatch({ supervisorId, date, batchNumber: number, batchName, projectDescription, projectLocation, tasks, workers: b.workers, metadata })
+    if (res.error) {
+      setError(`Couldn't save "${batchName}": ${res.error.message}`)
+      return false
+    }
+    return true
+  }
+
+  // ── Notify Director(s) + Site Incharge(s) — once, on Finish ────────────────
+  // Best-effort: a notification failure must never block/undo a successful save.
+  const notifyBatchesSubmitted = async (count) => {
+    if (!count) return
     try {
       const [{ data: directors }, { data: siteIncharges }] = await Promise.all([
         supabase.from('profiles').select('id').eq('role', 'boss'),
@@ -171,8 +292,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
         ...(directors || []).map((d) => d.id),
         ...(siteIncharges || []).map((s) => s.id),
       ])].filter((id) => id && id !== supervisorId)
-
-      const message = `${supervisorName || 'A supervisor'} created ${saved} batch${saved === 1 ? '' : 'es'} for ${formatDate(date)}.`
+      const message = `${supervisorName || 'A supervisor'} submitted ${count} batch${count === 1 ? '' : 'es'} for ${formatDate(date)}.`
       for (const recipientId of recipientIds) {
         await notifyUser({
           userId: recipientId,
@@ -184,15 +304,84 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
     } catch {
       // Swallow — the batches are already saved; notifications are advisory.
     }
-
-    setSavingBatches(false)
-    setBatchSuccess(`${saved} batch${saved === 1 ? '' : 'es'} saved successfully for ${formatDate(date)}.`)
-    // Reset to a single empty batch so the supervisor can start fresh
-    setBatches([emptyBatch()])
-    // Refresh the read-only summary of what's been submitted
-    const { data: refreshed } = await fetchBatchesForSupervisorDate(supervisorId, date)
-    setSavedBatches(refreshed || [])
   }
+
+  // ── Wizard actions ─────────────────────────────────────────
+  const handleSaveAndNext = async () => {
+    setSaving(true)
+    const ok = await persistCurrent()
+    if (ok) {
+      await refreshSaved()
+      setCurrentBatch(emptyBatch(date))
+      setEditingId(null)
+      setSuccess('Batch saved. Fill the next one below, or tap Finish.')
+    }
+    setSaving(false)
+  }
+
+  const handleSaveEdit = async () => {
+    setSaving(true)
+    const ok = await persistCurrent()
+    if (ok) {
+      await refreshSaved()
+      setCurrentBatch(null)
+      setEditingId(null)
+      setSuccess('Batch updated.')
+    }
+    setSaving(false)
+  }
+
+  const handleFinish = async () => {
+    setSaving(true)
+    setError(null)
+    // Save the in-progress batch only if it has workers; an empty form just closes.
+    if (currentBatch && currentBatch.workers.length > 0) {
+      const ok = await persistCurrent()
+      if (!ok) { setSaving(false); return }
+    }
+    const list = await refreshSaved()
+    if (!list || list.length === 0) {
+      setError('Add at least one worker to a batch before finishing.')
+      setSaving(false)
+      return
+    }
+    await notifyBatchesSubmitted(list.length)
+    setCurrentBatch(null)
+    setEditingId(null)
+    setSuccess(`${list.length} batch${list.length === 1 ? '' : 'es'} submitted for ${formatDate(date)}.`)
+    setSaving(false)
+  }
+
+  const handleEdit = (dbBatch) => {
+    setCurrentBatch(batchToForm(dbBatch, date))
+    setEditingId(dbBatch.id)
+    setSuccess(null)
+    setError(null)
+    setConflicts([])
+  }
+
+  const handleCancelEdit = () => {
+    setCurrentBatch(null)
+    setEditingId(null)
+    setError(null)
+    setConflicts([])
+  }
+
+  const handleAddAnother = () => {
+    setCurrentBatch(emptyBatch(date))
+    setEditingId(null)
+    setSuccess(null)
+    setError(null)
+    setConflicts([])
+  }
+
+  // ── Derived ────────────────────────────────────────────────
+  const visibleSaved = savedBatches.filter((b) => b.id !== editingId)
+  const formNumber = editingId
+    ? (savedBatches.find((b) => b.id === editingId)?.batch_number || nextBatchNumber())
+    : nextBatchNumber()
+  const customTasks = (currentBatch?.tasks || []).filter((t) => !TASK_CHIPS.includes(t))
+  const otTimeOptions = generateOtTimes(currentBatch?.timing_to || dfltTimes.to)
 
   return (
     <div>
@@ -201,65 +390,82 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
           {error}
         </div>
       )}
-      {batchSuccess && (
+      {success && (
         <div className="mb-4 px-4 py-2 rounded-md bg-emerald-50 border border-emerald-200 text-sm text-emerald-800">
-          {batchSuccess}
+          {success}
         </div>
       )}
 
-      {/* ── Already submitted (read-only) ─────────────── */}
-      {savedBatches.length > 0 && (
+      {/* ── Saved batches — collapsed editable summary cards ─────────── */}
+      {visibleSaved.length > 0 && (
+        <div className="space-y-3 mb-4">
+          {visibleSaved.map((b) => {
+            const workerCount = b.assignments?.length || b.worker_ids?.length || 0
+            const projPreview = b.project_description || b.metadata?.project_description || ''
+            return (
+              <div
+                key={b.id}
+                className="bg-white rounded-2xl border border-gray-100 shadow-sm px-5 py-4 flex items-center gap-3"
+              >
+                <div className="w-8 h-8 rounded-full bg-[#C0272D] text-white flex items-center justify-center text-sm font-bold flex-shrink-0">
+                  {b.batch_number}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-semibold text-gray-900 truncate">{b.batch_name}</p>
+                    {b.project_location && (
+                      <span className="text-xs text-gray-400 flex-shrink-0">· {b.project_location}</span>
+                    )}
+                  </div>
+                  <p className="text-xs text-gray-400 truncate">
+                    {workerCount} worker{workerCount === 1 ? '' : 's'}
+                    {projPreview ? ` · ${projPreview}` : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleEdit(b)}
+                  className="text-xs font-semibold text-[#C0272D] hover:text-red-800 flex-shrink-0"
+                >
+                  Edit
+                </button>
+              </div>
+            )
+          })}
+        </div>
+      )}
+
+      {/* ── Current batch form, or idle "add" button after Finish ─────── */}
+      {currentBatch ? (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 overflow-hidden">
-          <div className="px-5 pt-4 pb-1 flex items-center justify-between">
-            <p className="text-sm font-semibold text-gray-900">
-              ✓ Submitted for {formatDate(date)}
-            </p>
-            <span className="text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500">
-              Read-only
-            </span>
-          </div>
-          <BatchTeamList batches={savedBatches} />
-        </div>
-      )}
-
-      {/* ── Batch list ──────────────────────────────── */}
-      {batches.map((batch, batchIdx) => (
-        <div
-          key={batch.id}
-          className="bg-white rounded-2xl border border-gray-100 shadow-sm mb-4 overflow-hidden"
-        >
           {/* Batch header */}
           <div className="flex items-center justify-between px-5 py-4 border-b border-gray-50">
             <div className="flex items-center gap-3">
               <div className="w-8 h-8 rounded-full bg-[#C0272D] text-white flex items-center justify-center text-sm font-bold">
-                {batchIdx + 1}
+                {formNumber}
               </div>
               <input
                 type="text"
-                value={batch.name}
-                onChange={(e) => updateBatch(batchIdx, 'name', e.target.value)}
-                placeholder={`Batch ${batchIdx + 1} — e.g. BF#3 Team`}
+                value={currentBatch.name}
+                onChange={(e) => updateField('name', e.target.value)}
+                placeholder={`Batch ${formNumber} — e.g. BF#3 Team`}
                 className="text-sm font-semibold text-gray-900 outline-none border-b border-dashed border-gray-300 focus:border-[#C0272D] bg-transparent pb-0.5"
               />
             </div>
-            {batches.length > 1 && (
-              <button
-                onClick={() => removeBatch(batchIdx)}
-                className="text-xs text-red-400 hover:text-red-600"
-              >
-                Remove
-              </button>
+            {editingId && (
+              <span className="text-[10px] font-medium uppercase tracking-wide px-2 py-0.5 rounded-full bg-amber-100 text-amber-700">
+                Editing
+              </span>
             )}
           </div>
 
           {/* Workers in this batch */}
           <div className="px-5 py-4 border-b border-gray-50">
             <p className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-3">
-              Workers ({batch.workers.length})
+              Workers ({currentBatch.workers.length})
             </p>
-            {batch.workers.length > 0 ? (
+            {currentBatch.workers.length > 0 ? (
               <div className="space-y-2 mb-3">
-                {batch.workers.map((worker) => (
+                {currentBatch.workers.map((worker) => (
                   <div key={worker.id} className="flex items-center gap-3">
                     <div className="w-8 h-8 rounded-full bg-gray-100 flex items-center justify-center text-xs font-semibold text-gray-600 flex-shrink-0">
                       {(worker.full_name || '?').charAt(0)}
@@ -271,7 +477,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                       <p className="text-xs text-gray-400">{worker.designation_name}</p>
                     </div>
                     <button
-                      onClick={() => removeWorkerFromBatch(batchIdx, worker.id)}
+                      onClick={() => removeWorker(worker.id)}
                       className="text-gray-300 hover:text-red-500 text-sm flex-shrink-0"
                     >
                       ✕
@@ -283,9 +489,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
               <p className="text-xs text-gray-400 mb-3">No workers added yet</p>
             )}
 
-            {/* Add workers from pool */}
             <button
-              onClick={() => setPickingForBatch(batchIdx)}
+              onClick={() => setShowPicker(true)}
               className="text-xs font-semibold text-[#C0272D] hover:text-red-800"
             >
               + Add workers from pool
@@ -302,20 +507,20 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
             <div className="mb-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">Project Description</label>
               <select
-                value={batch.project_description || ''}
-                onChange={(e) => updateBatch(batchIdx, 'project_description', e.target.value)}
+                value={currentBatch.project_description || ''}
+                onChange={(e) => updateField('project_description', e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
               >
                 <option value="">Select project...</option>
                 {PROJECT_OPTIONS.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
                 <option value="__custom__">Other (type below)</option>
               </select>
-              {batch.project_description === '__custom__' && (
+              {currentBatch.project_description === '__custom__' && (
                 <input
                   type="text"
                   placeholder="Enter project name..."
-                  value={batch.custom_project || ''}
-                  onChange={(e) => updateBatch(batchIdx, 'custom_project', e.target.value)}
+                  value={currentBatch.custom_project || ''}
+                  onChange={(e) => updateField('custom_project', e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mt-2 focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
                 />
               )}
@@ -325,8 +530,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
             <div className="mb-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">Location</label>
               <select
-                value={batch.project_location || ''}
-                onChange={(e) => updateBatch(batchIdx, 'project_location', e.target.value)}
+                value={currentBatch.project_location || ''}
+                onChange={(e) => updateField('project_location', e.target.value)}
                 className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
               >
                 <option value="">Select location...</option>
@@ -335,12 +540,12 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 ))}
                 <option value="__custom__">Other (type below)</option>
               </select>
-              {batch.project_location === '__custom__' && (
+              {currentBatch.project_location === '__custom__' && (
                 <input
                   type="text"
                   placeholder="Enter location..."
-                  value={batch.custom_location || ''}
-                  onChange={(e) => updateBatch(batchIdx, 'custom_location', e.target.value)}
+                  value={currentBatch.custom_location || ''}
+                  onChange={(e) => updateField('custom_location', e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm mt-2 focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
                 />
               )}
@@ -352,8 +557,8 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">Work From</label>
                 <input
                   type="time"
-                  value={batch.timing_from || '09:00'}
-                  onChange={(e) => updateBatch(batchIdx, 'timing_from', e.target.value)}
+                  value={currentBatch.timing_from || dfltTimes.from}
+                  onChange={(e) => updateField('timing_from', e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
                 />
               </div>
@@ -361,14 +566,14 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-1.5 block">Work To</label>
                 <input
                   type="time"
-                  value={batch.timing_to || '18:00'}
-                  onChange={(e) => updateBatch(batchIdx, 'timing_to', e.target.value)}
+                  value={currentBatch.timing_to || dfltTimes.to}
+                  onChange={(e) => updateField('timing_to', e.target.value)}
                   className="w-full border border-gray-200 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
                 />
               </div>
             </div>
 
-            {/* Tasks — full chip list */}
+            {/* Tasks */}
             <div className="mb-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Tasks *</label>
               <div className="flex flex-wrap gap-1.5 mb-2">
@@ -376,14 +581,9 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                   <button
                     key={chip}
                     type="button"
-                    onClick={() => {
-                      const tasks = (batch.tasks || []).includes(chip)
-                        ? (batch.tasks || []).filter((t) => t !== chip)
-                        : [...(batch.tasks || []), chip]
-                      updateBatch(batchIdx, 'tasks', tasks)
-                    }}
+                    onClick={() => toggleTask(chip)}
                     className={`text-xs px-2.5 py-1 rounded-full border transition-all ${
-                      (batch.tasks || []).includes(chip)
+                      (currentBatch.tasks || []).includes(chip)
                         ? 'bg-[#0F172A] text-white border-[#0F172A]'
                         : 'bg-gray-50 text-gray-500 border-gray-200 hover:border-gray-400'
                     }`}
@@ -397,33 +597,24 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 <input
                   type="text"
                   placeholder="Add custom task..."
-                  value={batch.custom_task_input || ''}
-                  onChange={(e) => updateBatch(batchIdx, 'custom_task_input', e.target.value)}
+                  value={currentBatch.custom_task_input || ''}
+                  onChange={(e) => updateField('custom_task_input', e.target.value)}
                   onKeyDown={(e) => {
-                    if (e.key === 'Enter' && batch.custom_task_input?.trim()) {
-                      e.preventDefault()
-                      updateBatch(batchIdx, 'tasks', [...(batch.tasks || []), batch.custom_task_input.trim()])
-                      updateBatch(batchIdx, 'custom_task_input', '')
-                    }
+                    if (e.key === 'Enter') { e.preventDefault(); addCustomTask() }
                   }}
                   className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
                 />
                 <button
                   type="button"
-                  onClick={() => {
-                    if (batch.custom_task_input?.trim()) {
-                      updateBatch(batchIdx, 'tasks', [...(batch.tasks || []), batch.custom_task_input.trim()])
-                      updateBatch(batchIdx, 'custom_task_input', '')
-                    }
-                  }}
+                  onClick={addCustomTask}
                   className="px-3 py-2 bg-gray-100 text-gray-600 rounded-xl text-sm hover:bg-gray-200"
                 >
                   Add
                 </button>
               </div>
-              {(batch.tasks || []).some((t) => !TASK_CHIPS.includes(t)) && (
+              {customTasks.length > 0 && (
                 <div className="flex flex-wrap gap-1.5 mt-2">
-                  {(batch.tasks || []).filter((t) => !TASK_CHIPS.includes(t)).map((t) => (
+                  {customTasks.map((t) => (
                     <span
                       key={t}
                       className="inline-flex items-center gap-1 text-xs bg-[#0F172A] text-white px-2.5 py-1 rounded-full"
@@ -431,7 +622,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                       {t}
                       <button
                         type="button"
-                        onClick={() => updateBatch(batchIdx, 'tasks', (batch.tasks || []).filter((x) => x !== t))}
+                        onClick={() => updateField('tasks', currentBatch.tasks.filter((x) => x !== t))}
                         className="text-white/70 hover:text-white"
                       >
                         ✕
@@ -442,35 +633,62 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
               )}
             </div>
 
-            {/* Equipment */}
+            {/* Equipment — each selected vehicle carries its own time-in / time-out */}
             <div className="mb-3">
               <label className="text-xs font-semibold uppercase tracking-wider text-gray-400 mb-2 block">Equipment</label>
-              <div className="space-y-2">
-                {[
-                  { key: 'crane', label: 'Crane', types: ['CRANE', 'BOOM LIFT'] },
-                  { key: 'hydra', label: 'Hydra', types: ['HYDRA'] },
-                  { key: 'trawler', label: 'Trawler', types: ['LORRY'] },
-                  { key: 'cherry_picker', label: 'Cherry Picker', types: ['CAMPER', 'KIA', 'MARUTI', 'MAHINDRA', 'CRETA', 'EICHER', 'INDICA', 'ALTO', 'BUSS'] },
-                ].map((equip) => (
-                  <div key={equip.key} className="flex items-center gap-2">
-                    <span className="text-xs text-gray-500 w-24 flex-shrink-0">{equip.label}</span>
-                    <select
-                      value={batch[equip.key] || ''}
-                      onChange={(e) => updateBatch(batchIdx, equip.key, e.target.value)}
-                      className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
-                    >
-                      <option value="">Not required</option>
-                      {vehicles
-                        .filter((v) => equip.types.some((t) => v.vehicle_type?.toUpperCase().includes(t)))
-                        .map((v) => (
-                          <option key={v.id} value={`${v.vehicle_type} — ${v.vehicle_no}`}>
-                            {v.vehicle_type} — {v.vehicle_no}{v.driver_name ? ` (${v.driver_name})` : ''}
-                          </option>
-                        ))}
-                    </select>
-                  </div>
-                ))}
+              <div className="space-y-2.5">
+                {EQUIPMENT_TYPES.map((equip) => {
+                  const selected = !!currentBatch[equip.key]
+                  return (
+                    <div key={equip.key}>
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs text-gray-500 w-24 flex-shrink-0">{equip.label}</span>
+                        <select
+                          value={currentBatch[equip.key] || ''}
+                          onChange={(e) => { updateField(equip.key, e.target.value); setConflicts([]) }}
+                          className="flex-1 border border-gray-200 rounded-xl px-3 py-2 text-sm text-gray-700 focus:outline-none focus:ring-2 focus:ring-[#C0272D] bg-white"
+                        >
+                          <option value="">Not required</option>
+                          {vehicles
+                            .filter((v) => equip.types.some((t) => v.vehicle_type?.toUpperCase().includes(t)))
+                            .map((v) => (
+                              <option key={v.id} value={`${v.vehicle_type} — ${v.vehicle_no}`}>
+                                {v.vehicle_type} — {v.vehicle_no}{v.driver_name ? ` (${v.driver_name})` : ''}
+                              </option>
+                            ))}
+                        </select>
+                      </div>
+                      {selected && (
+                        <div className="flex items-center gap-2 mt-1.5 pl-[104px]">
+                          <span className="text-[11px] text-gray-400 flex-shrink-0">In</span>
+                          <input
+                            type="time"
+                            value={currentBatch[`${equip.key}_time_in`] || currentBatch.timing_from || ''}
+                            onChange={(e) => { updateField(`${equip.key}_time_in`, e.target.value); setConflicts([]) }}
+                            className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#C0272D]"
+                          />
+                          <span className="text-[11px] text-gray-400 flex-shrink-0">Out</span>
+                          <input
+                            type="time"
+                            value={currentBatch[`${equip.key}_time_out`] || currentBatch.timing_to || ''}
+                            onChange={(e) => { updateField(`${equip.key}_time_out`, e.target.value); setConflicts([]) }}
+                            className="border border-gray-200 rounded-lg px-2 py-1 text-xs focus:outline-none focus:ring-1 focus:ring-[#C0272D]"
+                          />
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
               </div>
+              {conflicts.length > 0 && (
+                <div className="mt-2.5 space-y-1.5">
+                  {conflicts.map((c, i) => (
+                    <p key={i} className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                      ⚠️ {c.vehicle_name} is already booked {c.time_in}–{c.time_out} by {c.supervisor_name || c.batch_name} — times overlap.
+                    </p>
+                  ))}
+                </div>
+              )}
             </div>
 
             {/* OT Toggle */}
@@ -479,18 +697,18 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                 <label className="text-xs font-semibold uppercase tracking-wider text-gray-400">Overtime Planned?</label>
                 <button
                   type="button"
-                  onClick={() => updateBatch(batchIdx, 'ot_planned', !batch.ot_planned)}
+                  onClick={() => updateField('ot_planned', !currentBatch.ot_planned)}
                   className={`relative inline-flex h-6 w-10 items-center rounded-full transition-colors ${
-                    batch.ot_planned ? 'bg-amber-500' : 'bg-gray-200'
+                    currentBatch.ot_planned ? 'bg-amber-500' : 'bg-gray-200'
                   }`}
                 >
                   <span className={`inline-block h-4 w-4 transform rounded-full bg-white shadow-sm transition-transform ${
-                    batch.ot_planned ? 'translate-x-5' : 'translate-x-1'
+                    currentBatch.ot_planned ? 'translate-x-5' : 'translate-x-1'
                   }`} />
                 </button>
               </div>
 
-              {batch.ot_planned && (
+              {currentBatch.ot_planned && (
                 <div className="bg-amber-50 border border-amber-200 rounded-xl p-3">
                   <p className="text-xs text-amber-700 mb-2">⚠️ OT requires prior Director approval</p>
                   {['OT From', 'OT To'].map((label, i) => {
@@ -499,13 +717,13 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                       <div key={key} className="mb-2">
                         <p className="text-xs text-amber-600 mb-1">{label}</p>
                         <div className="flex flex-wrap gap-1.5">
-                          {OT_TIMES.map((time) => (
+                          {otTimeOptions.map((time) => (
                             <button
                               key={time}
                               type="button"
-                              onClick={() => updateBatch(batchIdx, key, time === batch[key] ? '' : time)}
+                              onClick={() => updateField(key, time === currentBatch[key] ? '' : time)}
                               className={`px-2.5 py-1 rounded-full text-xs font-semibold transition-all ${
-                                batch[key] === time
+                                currentBatch[key] === time
                                   ? 'bg-amber-600 text-white'
                                   : 'bg-white text-amber-700 border border-amber-200 hover:bg-amber-100'
                               }`}
@@ -521,39 +739,68 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
               )}
             </div>
           </div>
-        </div>
-      ))}
 
-      {/* Add batch button */}
-      <button
-        onClick={addBatch}
-        className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm font-semibold text-gray-400 hover:border-[#C0272D] hover:text-[#C0272D] transition-colors mb-4"
-      >
-        + Add another batch
-      </button>
+          {/* Wizard actions */}
+          <div className="px-5 py-4 border-t border-gray-50 flex gap-2">
+            {editingId ? (
+              <>
+                <button
+                  onClick={handleCancelEdit}
+                  disabled={saving}
+                  className="flex-1 border border-gray-200 text-gray-600 font-semibold py-3 rounded-xl hover:bg-gray-50 transition-colors disabled:opacity-60"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleSaveEdit}
+                  disabled={saving}
+                  className="flex-1 bg-[#C0272D] hover:bg-red-800 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Save changes'}
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  onClick={handleSaveAndNext}
+                  disabled={saving}
+                  className="flex-1 bg-[#0F172A] hover:bg-gray-800 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  {saving ? 'Saving…' : 'Save & Add Next Batch'}
+                </button>
+                <button
+                  onClick={handleFinish}
+                  disabled={saving}
+                  className="flex-1 bg-[#C0272D] hover:bg-red-800 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
+                >
+                  Finish
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={handleAddAnother}
+          className="w-full py-3 border-2 border-dashed border-gray-200 rounded-2xl text-sm font-semibold text-gray-400 hover:border-[#C0272D] hover:text-[#C0272D] transition-colors mb-4"
+        >
+          + Add another batch
+        </button>
+      )}
 
       {/* Collaboration — applies to the whole day, not per-batch */}
       <CollaboratorsCard userId={supervisorId} userName={supervisorName} date={date} />
 
-      {/* Save all batches */}
-      <button
-        onClick={saveAllBatches}
-        disabled={savingBatches}
-        className="w-full bg-[#C0272D] hover:bg-red-800 text-white font-semibold py-3 rounded-xl transition-colors disabled:opacity-60"
-      >
-        {savingBatches ? 'Saving…' : 'Save All Batches'}
-      </button>
-
-      {/* ── Worker picker for a batch ─────────────────── */}
-      {pickingForBatch !== null && createPortal(
+      {/* ── Worker picker for the current batch ─────────────── */}
+      {showPicker && currentBatch && createPortal(
         <div style={{ position: 'fixed', inset: 0, zIndex: 9999 }}>
-          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setPickingForBatch(null)} />
+          <div style={{ position: 'absolute', inset: 0, background: 'rgba(0,0,0,0.5)' }} onClick={() => setShowPicker(false)} />
           <div style={{ position: 'absolute', bottom: 0, left: 0, right: 0, background: '#fff', borderRadius: '20px 20px 0 0', boxShadow: '0 -4px 24px rgba(0,0,0,0.15)', maxHeight: '70vh', display: 'flex', flexDirection: 'column', overflow: 'hidden', boxSizing: 'border-box' }}>
             <div className="px-5 py-4 border-b border-gray-100 flex items-center justify-between">
               <h3 className="font-semibold text-gray-900">
-                Add workers to Batch {pickingForBatch + 1}
+                Add workers to Batch {formNumber}
               </h3>
-              <button onClick={() => setPickingForBatch(null)} className="text-gray-400">
+              <button onClick={() => setShowPicker(false)} className="text-gray-400">
                 ✕
               </button>
             </div>
@@ -567,31 +814,16 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
               ) : (
                 pool.map((worker) => {
                   const displayName = worker.full_name || 'Unnamed worker'
-                  const alreadyInBatch = batches[pickingForBatch]?.workers.some(
-                    (w) => w.id === worker.id
-                  )
-                  const inOtherBatch = batches.some(
-                    (b, i) => i !== pickingForBatch && b.workers.some((w) => w.id === worker.id)
-                  )
+                  const inCurrent = currentBatch.workers.some((w) => w.id === worker.id)
+                  const inOtherBatch = lockedWorkerIds.has(worker.id)
                   return (
                     <button
                       key={worker.id}
                       type="button"
-                      onClick={() => {
-                        console.log('[batch picker] tapped:', { id: worker.id, full_name: worker.full_name, alreadyInBatch, inOtherBatch })
-                        if (inOtherBatch) return
-                        if (alreadyInBatch) {
-                          removeWorkerFromBatch(pickingForBatch, worker.id)
-                        } else {
-                          updateBatch(pickingForBatch, 'workers', [
-                            ...batches[pickingForBatch].workers,
-                            worker,
-                          ])
-                        }
-                      }}
+                      onClick={() => { if (!inOtherBatch) toggleWorker(worker) }}
                       disabled={inOtherBatch}
                       className={`appearance-none w-full flex items-center gap-3 p-3 rounded-xl border text-left transition-colors cursor-pointer ${
-                        alreadyInBatch
+                        inCurrent
                           ? 'bg-[#0F172A] border-[#0F172A]'
                           : inOtherBatch
                           ? 'bg-gray-50 border-gray-100 opacity-40 cursor-not-allowed'
@@ -600,7 +832,7 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                     >
                       <div
                         className={`w-8 h-8 rounded-full flex items-center justify-center text-xs font-bold flex-shrink-0 ${
-                          alreadyInBatch ? 'bg-white text-[#0F172A]' : 'bg-gray-100 text-gray-600'
+                          inCurrent ? 'bg-white text-[#0F172A]' : 'bg-gray-100 text-gray-600'
                         }`}
                       >
                         {displayName.charAt(0)}
@@ -608,16 +840,16 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
                       <div className="flex-1 min-w-0">
                         <p
                           className={`text-sm font-medium truncate ${
-                            alreadyInBatch ? 'text-white' : 'text-gray-900'
+                            inCurrent ? 'text-white' : 'text-gray-900'
                           }`}
                         >
                           {displayName}
                         </p>
-                        <p className={`text-xs ${alreadyInBatch ? 'text-gray-300' : 'text-gray-400'}`}>
+                        <p className={`text-xs ${inCurrent ? 'text-gray-300' : 'text-gray-400'}`}>
                           {worker.designation_name} {inOtherBatch ? '· In another batch' : ''}
                         </p>
                       </div>
-                      {alreadyInBatch && <span className="text-white text-sm">✓</span>}
+                      {inCurrent && <span className="text-white text-sm">✓</span>}
                     </button>
                   )
                 })
@@ -625,10 +857,10 @@ export default function BatchPlanBuilder({ date, supervisorId, supervisorName })
             </div>
             <div className="px-5 py-4 border-t border-gray-100">
               <button
-                onClick={() => setPickingForBatch(null)}
+                onClick={() => setShowPicker(false)}
                 className="w-full bg-[#0F172A] text-white font-semibold py-3 rounded-xl"
               >
-                Done — {batches[pickingForBatch]?.workers.length || 0} workers selected
+                Done — {currentBatch.workers.length} worker{currentBatch.workers.length === 1 ? '' : 's'} selected
               </button>
             </div>
           </div>

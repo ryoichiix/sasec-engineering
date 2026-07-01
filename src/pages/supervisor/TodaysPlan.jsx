@@ -18,7 +18,7 @@ import { fetchVehicles } from '../../lib/vehicles'
 import { notifyUser } from '../../lib/notifications'
 import { isDirector } from '../../lib/workers'
 import { todayLocal, formatDate } from '../../lib/dates'
-import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, OT_TIMES } from '../../lib/plan-options'
+import { PROJECT_OPTIONS, LOCATION_OPTIONS, TASK_CHIPS, generateOtTimes, defaultWorkTimes } from '../../lib/plan-options'
 
 // Fix B: how each planned-OT approval status reads on the supervisor's own form.
 const OT_STATUS_META = {
@@ -214,8 +214,12 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
   const [projectLocation, setProjectLocation] = useState('')
   const [customLocation, setCustomLocation] = useState('')
   const [permitHolder, setPermitHolder] = useState(profile?.full_name || '')
-  const [workFrom, setWorkFrom] = useState('09:00')
-  const [workTo, setWorkTo] = useState('18:00')
+  // Feature 1: seed work timing from the selected date's day-of-week default
+  // (Sun → 08:00–13:00, else 08:00–17:00). SinglePlan is remounted with a
+  // date-keyed key by the parent, so this lazy initializer re-runs per date —
+  // and a manual edit persists until the date changes or a saved plan loads.
+  const [workFrom, setWorkFrom] = useState(() => defaultWorkTimes(date).from)
+  const [workTo, setWorkTo] = useState(() => defaultWorkTimes(date).to)
   const [tasks, setTasks] = useState([])
   const [customTaskInput, setCustomTaskInput] = useState('')
   const [crane, setCrane] = useState('')
@@ -255,8 +259,9 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     else if (loc) { setProjectLocation('__custom__'); setCustomLocation(loc) }
     else { setProjectLocation(''); setCustomLocation('') }
     if (withPermit) setPermitHolder(data.permit_holder ?? profile?.full_name ?? '')
-    setWorkFrom(data.work_from ?? '09:00')
-    setWorkTo(data.work_to ?? '18:00')
+    const dfltTimes = defaultWorkTimes(date)
+    setWorkFrom(data.work_from ?? dfltTimes.from)
+    setWorkTo(data.work_to ?? dfltTimes.to)
     setOvertime(!!data.overtime)
     setOtFrom(data.ot_from ?? '')
     setOtTo(data.ot_to ?? '')
@@ -267,7 +272,7 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     setTrawler(data.equipment?.trawler ?? '')
     setTrawlerNotRequired(!!data.equipment?.trawler_not_required)
     setTasks(Array.isArray(data.tasks) ? data.tasks : [])
-  }, [profile?.full_name])
+  }, [profile?.full_name, date])
 
   // Initial prefill from the canonical row (own, or the initiator's when
   // collaborating). The parent remounts SinglePlan with a key that includes
@@ -493,6 +498,10 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
     { label: 'Hydra', value: hydra, set: setHydra, options: getVehiclesByType('HYDRA') },
     { label: 'Cherry Picker', value: cherryPicker, set: setCherryPicker, options: vehicles.filter((v) => !['HYDRA', 'CRANE', 'LORRY', 'BOOM'].some((k) => v.vehicle_type?.toUpperCase().includes(k))) },
   ]
+
+  // Feature 1: OT chip options begin at the (possibly overridden) work end time
+  // rather than a fixed 5 PM — so Sunday (ends 13:00) starts OT at 1 PM.
+  const otTimeOptions = useMemo(() => generateOtTimes(workTo), [workTo])
 
   return (
     <div className="space-y-4">
@@ -807,7 +816,7 @@ function SinglePlan({ date, user, profile, collabPartner, canonicalOwnerId }) {
               <div key={ot.label}>
                 <p className="text-xs font-medium text-amber-700 mb-1.5">{ot.label}</p>
                 <div className="flex flex-wrap gap-1.5">
-                  {OT_TIMES.map((time) => (
+                  {otTimeOptions.map((time) => (
                     <button
                       key={time}
                       type="button"
