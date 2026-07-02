@@ -3,6 +3,7 @@ import { supabase } from './supabase'
 export const EXPENSE_CATEGORIES = [
   'Petrol',
   'Diesel',
+  'Hydraulic Oil',
   'Vehicle Repairs',
   'Machinery Repairs',
   'Tools & Equipment',
@@ -16,6 +17,7 @@ export const EXPENSE_CATEGORIES = [
 export const CATEGORY_COLORS = {
   Petrol:              'bg-amber-100 text-amber-800 ring-amber-200',
   Diesel:             'bg-orange-100 text-orange-800 ring-orange-200',
+  'Hydraulic Oil':     'bg-lime-100 text-lime-800 ring-lime-200',
   'Vehicle Repairs':   'bg-red-100 text-red-800 ring-red-200',
   'Machinery Repairs': 'bg-fuchsia-100 text-fuchsia-800 ring-fuchsia-200',
   'Tools & Equipment': 'bg-cyan-100 text-cyan-800 ring-cyan-200',

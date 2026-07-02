@@ -13,12 +13,14 @@ import {
   getReceiptUrl,
   formatExpenseDetail,
 } from '../lib/expenses'
-import { insertFuelPurchase, insertFuelAllocations, fetchFuelBalance } from '../lib/fuel'
+import { insertFuelPurchase, insertFuelAllocations, fetchFuelBalance, FUEL_TYPES } from '../lib/fuel'
 
 // Categories that capture structured detail instead of a free-text description.
 const STRUCTURED_CATEGORIES = ['Vehicle Repairs', 'Machinery Repairs']
 // Fuel categories use the dedicated Fuel Manager (purchase + allocation) below.
-const FUEL_CATEGORIES = ['Diesel', 'Petrol']
+// The fuel type list lives in src/lib/fuel.js (FUEL_TYPES) so the category
+// trigger stays in sync with the per-type balance + allocation logic.
+const FUEL_CATEGORIES = FUEL_TYPES
 
 // Calendar-month helpers
 function monthBounds(ref) {
@@ -241,6 +243,9 @@ export default function SupervisorExpenses() {
         totalLitres:   fuelPurchaseLitres,
         pricePerLitre: fuelPricePerLitre,
         supervisorId:  user.id,
+        // The selected expense category (Diesel / Petrol / Hydraulic Oil) IS
+        // the fuel type — stored so the balance debits only this type's pool.
+        fuelType:      form.category,
       })
       if (pErr) {
         setSubmitting(false)
@@ -256,6 +261,8 @@ export default function SupervisorExpenses() {
           vehicle_no:       vehicles.find((v) => v.id === a.vehicle_id)?.vehicle_no || null,
           litres_allocated: Number(a.litres),
           supervisor_id:    user.id,
+          // Allocation debits ONLY this fuel type's balance (Fix 2).
+          fuel_type:        form.category,
         }))
       if (allocs.length > 0) {
         const { error: aErr } = await insertFuelAllocations(allocs)
@@ -317,25 +324,29 @@ export default function SupervisorExpenses() {
         </button>
       </div>
 
-      {/* ── Fuel balance at site (running, all-time) ─────────── */}
-      {fuelBalance && (
+      {/* ── Fuel balance at site (running, all-time) — per fuel type ─── */}
+      {fuelBalance?.byType?.length > 0 && (
         <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-5">
           <p className="text-xs font-semibold uppercase tracking-widest text-gray-400 mb-3">⛽ Fuel Balance at Site</p>
-          <div className="grid grid-cols-3 gap-4">
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Total purchased</p>
-              <p className="text-lg font-bold text-gray-900">{fuelBalance.totalPurchased.toFixed(0)} L</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Total allocated</p>
-              <p className="text-lg font-bold text-orange-600">{fuelBalance.totalAllocated.toFixed(0)} L</p>
-            </div>
-            <div>
-              <p className="text-xs text-gray-400 mb-0.5">Available now</p>
-              <p className={`text-lg font-bold ${fuelBalance.balance > 50 ? 'text-green-600' : 'text-red-600'}`}>
-                {fuelBalance.balance.toFixed(0)} L
-              </p>
-            </div>
+          <div className="space-y-3">
+            {fuelBalance.byType.map((t) => (
+              <div key={t.type}>
+                <div className="flex items-baseline justify-between mb-1.5">
+                  <p className="text-sm font-semibold text-gray-900">{t.type}</p>
+                  <p className={`text-lg font-bold ${t.balance > 50 ? 'text-green-600' : 'text-red-600'}`}>
+                    {t.balance.toFixed(0)} L <span className="text-xs font-medium text-gray-400">remaining</span>
+                  </p>
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <p className="text-xs text-gray-400">
+                    Purchased <span className="font-semibold text-gray-700">{t.totalPurchased.toFixed(0)} L</span>
+                  </p>
+                  <p className="text-xs text-gray-400">
+                    Allocated <span className="font-semibold text-orange-600">{t.totalAllocated.toFixed(0)} L</span>
+                  </p>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
@@ -480,7 +491,7 @@ export default function SupervisorExpenses() {
           <div className="space-y-4 mb-4">
             {/* Purchase section */}
             <div className="bg-blue-50 rounded-xl p-4 border border-blue-100">
-              <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">Today's Purchase</p>
+              <p className="text-xs font-semibold uppercase tracking-wider text-blue-600 mb-3">Today's {form.category} Purchase</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">Total litres purchased</label>
@@ -514,7 +525,7 @@ export default function SupervisorExpenses() {
             {/* Allocation section */}
             <div>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Allocate to vehicles</p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-gray-400">Allocate {form.category} to vehicles</p>
                 <button
                   type="button"
                   onClick={addAllocationRow}
