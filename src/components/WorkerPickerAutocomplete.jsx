@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react'
 import { supabase } from '../lib/supabase'
+import { useAuth } from '../contexts/auth-context'
+import { fetchStaffIdentity, isDualRoleWorker } from '../lib/workers'
 
 let workersCache = null
+let staffCache = null
 
 async function loadWorkers() {
   // Sources from public.workers. Some workers are also supervisors (dual-role
   // staff who do labor and are paid as workers) — they legitimately receive
-  // advances, so they stay in the picker.
+  // advances, so they stay in the picker for a Site Incharge. A regular
+  // supervisor cannot select them (filtered out below).
   if (workersCache) return workersCache
   const { data } = await supabase
     .from('workers')
@@ -16,6 +20,12 @@ async function loadWorkers() {
   return workersCache
 }
 
+async function loadStaff() {
+  if (staffCache) return staffCache
+  staffCache = await fetchStaffIdentity()
+  return staffCache
+}
+
 /**
  * Searchable worker picker — typing filters worker names in a dropdown;
  * clicking a suggestion resolves to that worker's id. Unlike
@@ -23,13 +33,20 @@ async function loadWorkers() {
  * free text.
  */
 export default function WorkerPickerAutocomplete({ value, onChange, placeholder, required, className, disabled }) {
+  const { profile } = useAuth()
+  // A regular supervisor (not Site Incharge, not Director) cannot raise an
+  // advance for dual-role staff.
+  const restrictedRole = profile?.role === 'supervisor' && profile?.field_manager !== true
+
   const [workers, setWorkers] = useState([])
+  const [staff, setStaff] = useState({ ids: new Set(), names: new Set() })
   const [text, setText] = useState('')
   const [open, setOpen] = useState(false)
   const wrapRef = useRef(null)
 
   useEffect(() => {
     loadWorkers().then(setWorkers)
+    loadStaff().then(setStaff)
   }, [])
 
   useEffect(() => {
@@ -43,7 +60,11 @@ export default function WorkerPickerAutocomplete({ value, onChange, placeholder,
 
   const query = text.trim().toLowerCase()
   const matches = query
-    ? workers.filter((w) => (w.full_name || '').toLowerCase().includes(query)).slice(0, 8)
+    ? workers
+        .filter((w) => (w.full_name || '').toLowerCase().includes(query))
+        // Regular supervisors cannot pick dual-role staff; Site Incharge can.
+        .filter((w) => !(restrictedRole && isDualRoleWorker(w, staff)))
+        .slice(0, 8)
     : []
 
   return (
@@ -74,9 +95,14 @@ export default function WorkerPickerAutocomplete({ value, onChange, placeholder,
                   setText(w.full_name || '')
                   setOpen(false)
                 }}
-                className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition"
+                className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition flex items-center justify-between gap-2"
               >
-                {w.full_name}
+                <span className="truncate">{w.full_name}</span>
+                {isDualRoleWorker(w, staff) && (
+                  <span className="flex-shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200">
+                    Supervisor
+                  </span>
+                )}
               </button>
             </li>
           ))}
