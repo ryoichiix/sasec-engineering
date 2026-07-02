@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/auth-context'
-import { notifyUser } from '../lib/notifications'
+import { notifyBoss } from '../lib/notifications'
 import { todayLocal, formatDate } from '../lib/dates'
 
 // Site Incharge marks daily attendance for OTHER supervisors.
@@ -131,34 +131,22 @@ export default function SupervisorTeamAttendance() {
 
     // Fix 3: notify every Director when a supervisor is marked Absent.
     // Fire only on transitions into 'absent' (not on repeated clicks of Absent).
-    // TEMP DIAGNOSTIC (remove after root-causing): trace the notification path.
-    console.log('[sup-absent] guard →', {
-      upsertError: error,
-      status,
-      prevStatus,
-      willNotify: !error && status === 'absent' && prevStatus !== 'absent',
-    })
+    //
+    // Uses the notify_boss SECURITY DEFINER RPC — the same pattern the leave/OT
+    // flows use — NOT a client-side `profiles … eq('role','boss')` query. A
+    // supervisor's RLS cannot read boss rows (profiles_select = own row or
+    // is_boss(); migration 26 limits supervisor reads to worker/supervisor), so
+    // a client query returns 0 rows and no notification is sent. The RPC
+    // enumerates bosses server-side, bypassing RLS.
     if (!error && status === 'absent' && prevStatus !== 'absent') {
-      const { data: bosses, error: bossErr } = await supabase
-        .from('profiles')
-        .select('id')
-        .eq('role', 'boss')
-      console.log('[sup-absent] bosses query →', { count: (bosses || []).length, bossErr })
       const supName = supervisor.full_name || 'A supervisor'
       const pretty  = formatDate(date)
-      console.log('[sup-absent] calling notifyUser for', (bosses || []).length, 'director(s)')
-      const results = await Promise.all(
-        (bosses || []).map((b) =>
-          notifyUser({
-            userId:        b.id,
-            title:         '❗ Supervisor absent',
-            message:       `${supName} was marked absent for ${pretty}.`,
-            type:          'supervisor_absent',
-            referenceType: 'supervisor_attendance',
-          })
-        )
-      )
-      console.log('[sup-absent] notifyUser results →', results)
+      await notifyBoss({
+        title:         '❗ Supervisor absent',
+        message:       `${supName} was marked absent for ${pretty}.`,
+        type:          'supervisor_absent',
+        referenceType: 'supervisor_attendance',
+      })
     }
   }
 
