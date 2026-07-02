@@ -192,6 +192,9 @@ export default function BossDashboard() {
     let m = true
     ;(async () => {
       setLoadingOnLeave(true)
+      // Supervisor-only leave visibility (leave_requests is a supervisor
+      // leave system; workers have no leave data model). Show supervisors on
+      // approved leave, plus supervisors marked leave OR absent today.
       const [leaveRes, supAttRes] = await Promise.all([
         supabase
           .from('leave_requests')
@@ -203,19 +206,25 @@ export default function BossDashboard() {
           .from('supervisor_attendance')
           .select('supervisor_id, status')
           .eq('attendance_date', today)
-          .eq('status', 'leave'),
+          .in('status', ['leave', 'absent']),
       ])
       if (!m) return
 
       const ids = new Set()
       const byId = new Map()
+      // Approved leave requests take precedence (they carry a reason).
       for (const r of leaveRes.data || []) {
         ids.add(r.supervisor_id)
-        byId.set(r.supervisor_id, { source: 'leave_request', reason: r.reason })
+        byId.set(r.supervisor_id, { kind: 'leave_request', reason: r.reason })
       }
       for (const r of supAttRes.data || []) {
         ids.add(r.supervisor_id)
-        if (!byId.has(r.supervisor_id)) byId.set(r.supervisor_id, { source: 'attendance', reason: null })
+        if (!byId.has(r.supervisor_id)) {
+          byId.set(r.supervisor_id, {
+            kind: r.status === 'absent' ? 'marked_absent' : 'marked_leave',
+            reason: null,
+          })
+        }
       }
 
       let people = []
@@ -228,7 +237,7 @@ export default function BossDashboard() {
           id:     p.id,
           name:   p.full_name || 'Supervisor',
           reason: byId.get(p.id)?.reason || null,
-          source: byId.get(p.id)?.source || 'leave_request',
+          kind:   byId.get(p.id)?.kind || 'leave_request',
         }))
       }
       if (!m) return
@@ -335,7 +344,7 @@ export default function BossDashboard() {
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <Plane className="h-4 w-4 text-[#0EA5E9]" strokeWidth={2} />
-              <h3 className="text-base font-semibold text-[#0F172A]">On leave today</h3>
+              <h3 className="text-base font-semibold text-[#0F172A]">Supervisors on leave / absent today</h3>
             </div>
             <Link to="/boss/leave" className="text-xs text-[#C0272D] hover:text-[#A01E23] font-semibold flex items-center gap-1">
               Leave queue <ArrowRight className="h-3 w-3" />
@@ -344,27 +353,35 @@ export default function BossDashboard() {
           {loadingOnLeave ? (
             <Skeleton className="h-12 w-full" />
           ) : onLeave.length === 0 ? (
-            <p className="text-sm text-[#64748B]">Nobody on leave today.</p>
+            <p className="text-sm text-[#64748B]">All supervisors present today.</p>
           ) : (
             <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {onLeave.map((p) => (
-                <li
-                  key={p.id}
-                  className="flex items-start gap-3 p-2.5 rounded-lg bg-[#F8FAFC]"
-                >
-                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-700 text-xs font-bold flex-shrink-0">
-                    {(p.name[0] || '?').toUpperCase()}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-medium text-[#0F172A] truncate">{p.name}</p>
-                    <p className="text-[11px] text-[#64748B] truncate">
-                      {p.source === 'leave_request'
-                        ? (p.reason ? `Leave: ${p.reason}` : 'Approved leave')
-                        : 'Marked on leave today'}
-                    </p>
-                  </div>
-                </li>
-              ))}
+              {onLeave.map((p) => {
+                const isAbsent = p.kind === 'marked_absent'
+                const label =
+                  p.kind === 'leave_request'
+                    ? (p.reason ? `Leave: ${p.reason}` : 'Approved leave')
+                    : isAbsent
+                      ? 'Marked absent today'
+                      : 'Marked on leave today'
+                return (
+                  <li
+                    key={p.id}
+                    className="flex items-start gap-3 p-2.5 rounded-lg bg-[#F8FAFC]"
+                  >
+                    <span className={
+                      'inline-flex h-8 w-8 items-center justify-center rounded-lg text-xs font-bold flex-shrink-0 ' +
+                      (isAbsent ? 'bg-rose-100 text-rose-700' : 'bg-sky-100 text-sky-700')
+                    }>
+                      {(p.name[0] || '?').toUpperCase()}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-medium text-[#0F172A] truncate">{p.name}</p>
+                      <p className="text-[11px] text-[#64748B] truncate">{label}</p>
+                    </div>
+                  </li>
+                )
+              })}
             </ul>
           )}
         </div>

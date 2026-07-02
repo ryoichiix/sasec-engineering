@@ -27,8 +27,11 @@ export default function SupervisorAttendance() {
   // Map of worker_id -> { status, ot_hours, marked_by_name, saving, savingOt, savedAt, otSavedAt, error }
   const [rows, setRows] = useState({})
 
-  // Load workers (only rows from public.workers — supervisors live in profiles
-  // and are handled by the separate Supervisors tab below, never mixed here).
+  // Load every worker from public.workers. Some workers are also supervisors
+  // (dual-role: a supervisor login PLUS a worker/payroll record) — those are
+  // legitimate workers and must remain markable here, so we do NOT filter them
+  // out. Supervisor-vs-supervisor marking is a separate concern handled by the
+  // Site Incharge "Supervisors" tab below.
   useEffect(() => {
     if (!user?.id) return
     let isMounted = true
