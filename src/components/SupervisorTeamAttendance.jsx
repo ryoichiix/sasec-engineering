@@ -131,14 +131,23 @@ export default function SupervisorTeamAttendance() {
 
     // Fix 3: notify every Director when a supervisor is marked Absent.
     // Fire only on transitions into 'absent' (not on repeated clicks of Absent).
+    // TEMP DIAGNOSTIC (remove after root-causing): trace the notification path.
+    console.log('[sup-absent] guard →', {
+      upsertError: error,
+      status,
+      prevStatus,
+      willNotify: !error && status === 'absent' && prevStatus !== 'absent',
+    })
     if (!error && status === 'absent' && prevStatus !== 'absent') {
-      const { data: bosses } = await supabase
+      const { data: bosses, error: bossErr } = await supabase
         .from('profiles')
         .select('id')
         .eq('role', 'boss')
+      console.log('[sup-absent] bosses query →', { count: (bosses || []).length, bossErr })
       const supName = supervisor.full_name || 'A supervisor'
       const pretty  = formatDate(date)
-      await Promise.all(
+      console.log('[sup-absent] calling notifyUser for', (bosses || []).length, 'director(s)')
+      const results = await Promise.all(
         (bosses || []).map((b) =>
           notifyUser({
             userId:        b.id,
@@ -149,6 +158,7 @@ export default function SupervisorTeamAttendance() {
           })
         )
       )
+      console.log('[sup-absent] notifyUser results →', results)
     }
   }
 
