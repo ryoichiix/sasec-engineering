@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import {
   UserCheck, UserX, AlertTriangle, IndianRupee, Users2,
   ClipboardCheck, CalendarOff, Clock, FileText, Receipt,
-  ArrowRight,
+  ArrowRight, Plane,
 } from 'lucide-react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid, Cell,
@@ -57,6 +57,11 @@ export default function BossDashboard() {
   const [loadingTrend, setLoadingTrend] = useState(true)
   const [loadingTeams, setLoadingTeams] = useState(true)
   const [loadingPayroll, setLoadingPayroll] = useState(true)
+
+  // Fix 4: "On Leave Today" — supervisors on approved leave (leave_requests)
+  // + supervisors explicitly marked leave in supervisor_attendance.
+  const [onLeave, setOnLeave] = useState([])
+  const [loadingOnLeave, setLoadingOnLeave] = useState(true)
 
   // ── Today KPIs + worker count ──────────────────────────
   useEffect(() => {
@@ -182,6 +187,57 @@ export default function BossDashboard() {
     return () => { m = false }
   }, [month.start, month.end])
 
+  // ── On Leave Today (supervisors) ────────────────────────
+  useEffect(() => {
+    let m = true
+    ;(async () => {
+      setLoadingOnLeave(true)
+      const [leaveRes, supAttRes] = await Promise.all([
+        supabase
+          .from('leave_requests')
+          .select('supervisor_id, start_date, end_date, reason')
+          .eq('status', 'approved')
+          .lte('start_date', today)
+          .gte('end_date', today),
+        supabase
+          .from('supervisor_attendance')
+          .select('supervisor_id, status')
+          .eq('attendance_date', today)
+          .eq('status', 'leave'),
+      ])
+      if (!m) return
+
+      const ids = new Set()
+      const byId = new Map()
+      for (const r of leaveRes.data || []) {
+        ids.add(r.supervisor_id)
+        byId.set(r.supervisor_id, { source: 'leave_request', reason: r.reason })
+      }
+      for (const r of supAttRes.data || []) {
+        ids.add(r.supervisor_id)
+        if (!byId.has(r.supervisor_id)) byId.set(r.supervisor_id, { source: 'attendance', reason: null })
+      }
+
+      let people = []
+      if (ids.size) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', Array.from(ids))
+        people = (profs || []).map((p) => ({
+          id:     p.id,
+          name:   p.full_name || 'Supervisor',
+          reason: byId.get(p.id)?.reason || null,
+          source: byId.get(p.id)?.source || 'leave_request',
+        }))
+      }
+      if (!m) return
+      setOnLeave(people)
+      setLoadingOnLeave(false)
+    })()
+    return () => { m = false }
+  }, [today])
+
   // ── Vehicle document-expiry notifications (once per day per login) ──
   useEffect(() => {
     if (!user?.id) return
@@ -266,6 +322,47 @@ export default function BossDashboard() {
                   </span>
                   <p className="text-sm font-medium text-[#0F172A] truncate flex-1">{t.name}</p>
                   <span className="text-sm font-bold text-[#0F172A] num tabular-nums">{t.count}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
+
+      {/* On Leave Today */}
+      <div className="mb-6 stagger" style={{ animationDelay: '275ms' }}>
+        <div className="card p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Plane className="h-4 w-4 text-[#0EA5E9]" strokeWidth={2} />
+              <h3 className="text-base font-semibold text-[#0F172A]">On leave today</h3>
+            </div>
+            <Link to="/boss/leave" className="text-xs text-[#C0272D] hover:text-[#A01E23] font-semibold flex items-center gap-1">
+              Leave queue <ArrowRight className="h-3 w-3" />
+            </Link>
+          </div>
+          {loadingOnLeave ? (
+            <Skeleton className="h-12 w-full" />
+          ) : onLeave.length === 0 ? (
+            <p className="text-sm text-[#64748B]">Nobody on leave today.</p>
+          ) : (
+            <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {onLeave.map((p) => (
+                <li
+                  key={p.id}
+                  className="flex items-start gap-3 p-2.5 rounded-lg bg-[#F8FAFC]"
+                >
+                  <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-sky-100 text-sky-700 text-xs font-bold flex-shrink-0">
+                    {(p.name[0] || '?').toUpperCase()}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm font-medium text-[#0F172A] truncate">{p.name}</p>
+                    <p className="text-[11px] text-[#64748B] truncate">
+                      {p.source === 'leave_request'
+                        ? (p.reason ? `Leave: ${p.reason}` : 'Approved leave')
+                        : 'Marked on leave today'}
+                    </p>
+                  </div>
                 </li>
               ))}
             </ul>

@@ -4,6 +4,10 @@ import { supabase } from '../lib/supabase'
 let workersCache = null
 
 async function loadWorkers() {
+  // Sources strictly from public.workers — supervisors and directors live in
+  // public.profiles and MUST NOT appear here. This is the permission boundary
+  // that keeps a regular supervisor from picking another supervisor as the
+  // subject of an advance request or attendance mark.
   if (workersCache) return workersCache
   const { data } = await supabase
     .from('workers')

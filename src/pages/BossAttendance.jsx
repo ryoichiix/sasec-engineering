@@ -43,22 +43,38 @@ export default function BossAttendance() {
 
   useEffect(() => {
     let isMounted = true
-    supabase
-      .from('attendance')
-      .select('worker_table_id, status')
-      .eq('attendance_date', date)
-      .not('worker_table_id', 'is', null)
-      .then(({ data, error }) => {
-        if (!isMounted) return
-        if (error) {
-          console.error('Failed to load attendance', error)
-          setAttendance({})
-          return
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('worker_table_id, status, marked_by')
+        .eq('attendance_date', date)
+        .not('worker_table_id', 'is', null)
+      if (!isMounted) return
+      if (error) {
+        console.error('Failed to load attendance', error)
+        setAttendance({})
+        return
+      }
+      // Resolve marker names for the "Marked by" label.
+      const markerIds = Array.from(new Set((data || []).map((r) => r.marked_by).filter(Boolean)))
+      let names = {}
+      if (markerIds.length) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', markerIds)
+        for (const p of profs || []) names[p.id] = p.full_name
+      }
+      if (!isMounted) return
+      const map = {}
+      for (const r of data || []) {
+        map[r.worker_table_id] = {
+          status: r.status,
+          marked_by_name: r.marked_by ? (names[r.marked_by] || null) : null,
         }
-        const map = {}
-        for (const r of data || []) map[r.worker_table_id] = r.status
-        setAttendance(map)
-      })
+      }
+      setAttendance(map)
+    })()
     return () => {
       isMounted = false
     }
@@ -112,7 +128,7 @@ export default function BossAttendance() {
       ) : (
         <div className="space-y-6">
           {groups.map((g) => {
-            const marked = g.workers.filter((w) => attendance[w.id]).length
+            const marked = g.workers.filter((w) => attendance[w.id]?.status).length
             return (
               <div
                 key={g.supervisor?.id ?? 'unassigned'}
@@ -132,17 +148,27 @@ export default function BossAttendance() {
                   </div>
                 ) : (
                   <ul className="divide-y divide-slate-100">
-                    {g.workers.map((w) => (
-                      <li
-                        key={w.id}
-                        className="px-6 py-3 flex items-center justify-between"
-                      >
-                        <span className="text-sm text-slate-800">
-                          {w.full_name || 'Unnamed worker'}
-                        </span>
-                        <StatusPill value={attendance[w.id]} />
-                      </li>
-                    ))}
+                    {g.workers.map((w) => {
+                      const rec = attendance[w.id]
+                      return (
+                        <li
+                          key={w.id}
+                          className="px-6 py-3 flex items-center justify-between"
+                        >
+                          <div className="min-w-0">
+                            <p className="text-sm text-slate-800 truncate">
+                              {w.full_name || 'Unnamed worker'}
+                            </p>
+                            {rec?.marked_by_name && (
+                              <p className="text-[11px] text-slate-400 mt-0.5">
+                                Marked by: {rec.marked_by_name}
+                              </p>
+                            )}
+                          </div>
+                          <StatusPill value={rec?.status} />
+                        </li>
+                      )
+                    })}
                   </ul>
                 )}
               </div>

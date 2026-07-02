@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import DashboardShell from '../components/DashboardShell'
 import AttendanceModeBanner from '../components/AttendanceModeBanner'
+import SupervisorTeamAttendance from '../components/SupervisorTeamAttendance'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../contexts/auth-context'
 import { STATUS_LIST } from '../lib/attendance'
@@ -8,7 +9,11 @@ import { isDirector, workerDesignationName } from '../lib/workers'
 import { todayLocal, formatDate } from '../lib/dates'
 
 export default function SupervisorAttendance() {
-  const { user } = useAuth()
+  const { user, profile } = useAuth()
+  const isFM = profile?.field_manager === true
+
+  const [tab, setTab] = useState('workers') // 'workers' | 'supervisors'
+
   const [date, setDate] = useState(todayLocal())
   const [workers, setWorkers] = useState([])
   const [workersLoading, setWorkersLoading] = useState(true)
@@ -19,17 +24,17 @@ export default function SupervisorAttendance() {
   const [filterWageType, setFilterWageType] = useState('')
   const [filterDesignation, setFilterDesignation] = useState('')
 
-  // Map of worker_id -> { status, ot_hours, saving, savingOt, savedAt, otSavedAt, error }
+  // Map of worker_id -> { status, ot_hours, marked_by_name, saving, savingOt, savedAt, otSavedAt, error }
   const [rows, setRows] = useState({})
 
-  // Load ALL workers — any supervisor can mark any worker's attendance.
-  // The supervisor_id on each attendance row serves as the audit trail.
+  // Load workers (only rows from public.workers — supervisors live in profiles
+  // and are handled by the separate Supervisors tab below, never mixed here).
   useEffect(() => {
     if (!user?.id) return
     let isMounted = true
     supabase
       .from('workers')
-      .select('id, full_name, wage_type, designation_id, designation_name, designations(name)')
+      .select('id, full_name, wage_type, designation_id, designation_name, supervisor_id, designations(name)')
       .order('full_name')
       .then(({ data, error }) => {
         if (!isMounted) return
@@ -45,33 +50,46 @@ export default function SupervisorAttendance() {
     return () => { isMounted = false }
   }, [user?.id])
 
-  // Load attendance + ot_hours for the selected date
+  // Load attendance + ot_hours + marked_by for the selected date
   useEffect(() => {
     if (!user?.id || workers.length === 0) return
     let isMounted = true
-    supabase
-      .from('attendance')
-      .select('worker_id, worker_table_id, status, ot_hours, ot_status')
-      .eq('attendance_date', date)
-      .in('worker_table_id', workers.map((w) => w.id))
-      .then(({ data, error }) => {
-        if (!isMounted) return
-        if (error) {
-          console.error('Failed to load attendance', error)
-          return
+    ;(async () => {
+      const { data, error } = await supabase
+        .from('attendance')
+        .select('worker_id, worker_table_id, status, ot_hours, ot_status, marked_by')
+        .eq('attendance_date', date)
+        .in('worker_table_id', workers.map((w) => w.id))
+      if (!isMounted) return
+      if (error) {
+        console.error('Failed to load attendance', error)
+        return
+      }
+      // Resolve marker names for display.
+      const markerIds = Array.from(new Set((data || []).map((r) => r.marked_by).filter(Boolean)))
+      let names = {}
+      if (markerIds.length) {
+        const { data: profs } = await supabase
+          .from('profiles')
+          .select('id, full_name')
+          .in('id', markerIds)
+        for (const p of profs || []) names[p.id] = p.full_name
+      }
+      if (!isMounted) return
+      const next = {}
+      for (const r of data || []) {
+        const key = r.worker_id || r.worker_table_id
+        if (!key) continue
+        next[key] = {
+          status: r.status,
+          ot_hours: Number(r.ot_hours) || 0,
+          ot_status: r.ot_status,
+          marked_by: r.marked_by,
+          marked_by_name: r.marked_by ? (names[r.marked_by] || null) : null,
         }
-        const next = {}
-        for (const r of data || []) {
-          const key = r.worker_id || r.worker_table_id
-          if (!key) continue
-          next[key] = {
-            status: r.status,
-            ot_hours: Number(r.ot_hours) || 0,
-            ot_status: r.ot_status,
-          }
-        }
-        setRows(next)
-      })
+      }
+      setRows(next)
+    })()
     return () => { isMounted = false }
   }, [user?.id, date, workers])
 
@@ -80,14 +98,12 @@ export default function SupervisorAttendance() {
     [workers, rows]
   )
 
-  // Unique designation names for the filter dropdown
   const designations = useMemo(
     () =>
       [...new Set(workers.map(workerDesignationName).filter(Boolean))].sort(),
     [workers]
   )
 
-  // Apply search + wage-type + designation filters
   const filteredWorkers = useMemo(
     () =>
       workers.filter((w) => {
@@ -105,8 +121,9 @@ export default function SupervisorAttendance() {
   )
 
   // Mark attendance status (clears OT if marking absent)
-  const mark = async (workerId, status) => {
+  const mark = async (worker, status) => {
     if (!user?.id) return
+    const workerId = worker.id
     const currentOt = status === 'absent' ? 0 : (rows[workerId]?.ot_hours ?? 0)
 
     setRows((prev) => ({
@@ -120,11 +137,16 @@ export default function SupervisorAttendance() {
       },
     }))
 
+    // supervisor_id = worker's assigned supervisor (falls back to marker if unassigned).
+    // marked_by     = the supervisor doing the marking (audit trail).
+    const assignedSupervisorId = worker.supervisor_id || user.id
+
     const { error } = await supabase.from('attendance').upsert(
       {
-        worker_id:       workerId,   // matches the unique constraint (worker_id, attendance_date)
-        worker_table_id: workerId,   // FK to workers table
-        supervisor_id:   user.id,
+        worker_id:       workerId,
+        worker_table_id: workerId,
+        supervisor_id:   assignedSupervisorId,
+        marked_by:       user.id,
         attendance_date: date,
         status,
         ot_hours: currentOt,
@@ -143,6 +165,8 @@ export default function SupervisorAttendance() {
         row.status = status
         row.ot_hours = currentOt
         if (currentOt === 0) row.ot_status = null
+        row.marked_by = user.id
+        row.marked_by_name = profile?.full_name || null
         row.savedAt = Date.now()
       }
       next[workerId] = row
@@ -150,7 +174,6 @@ export default function SupervisorAttendance() {
     })
   }
 
-  // Update OT hours locally (before blur-save)
   const setOtLocal = (workerId, value) => {
     setRows((prev) => ({
       ...prev,
@@ -162,9 +185,9 @@ export default function SupervisorAttendance() {
     }))
   }
 
-  // Save OT hours on blur
-  const saveOt = async (workerId) => {
+  const saveOt = async (worker) => {
     if (!user?.id) return
+    const workerId = worker.id
     const entry = rows[workerId] || {}
     if (!entry.status || entry.status === 'absent') return
     const ot_hours = Math.max(0, Number(entry.ot_hours) || 0)
@@ -174,11 +197,14 @@ export default function SupervisorAttendance() {
       [workerId]: { ...(prev[workerId] || {}), ot_hours, savingOt: true },
     }))
 
+    const assignedSupervisorId = worker.supervisor_id || user.id
+
     const { data, error } = await supabase.from('attendance').upsert(
       {
-        worker_id:       workerId,   // matches the unique constraint (worker_id, attendance_date)
-        worker_table_id: workerId,   // FK to workers table
-        supervisor_id:   user.id,
+        worker_id:       workerId,
+        worker_table_id: workerId,
+        supervisor_id:   assignedSupervisorId,
+        marked_by:       user.id,
         attendance_date: date,
         status: entry.status,
         ot_hours,
@@ -196,6 +222,8 @@ export default function SupervisorAttendance() {
         row.error = null
         row.ot_hours = ot_hours
         row.ot_status = data?.ot_status ?? row.ot_status
+        row.marked_by = user.id
+        row.marked_by_name = profile?.full_name || null
         row.otSavedAt = Date.now()
       }
       next[workerId] = row
@@ -206,6 +234,37 @@ export default function SupervisorAttendance() {
   return (
     <DashboardShell title="Mark Attendance" accent="bg-sky-500">
       <AttendanceModeBanner supervisorOverride />
+
+      {isFM && (
+        <div className="mb-4 inline-flex rounded-lg border border-slate-200 bg-white p-1 text-sm">
+          <button
+            onClick={() => setTab('workers')}
+            className={
+              'px-4 py-1.5 rounded-md font-medium transition ' +
+              (tab === 'workers'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100')
+            }
+          >
+            Workers
+          </button>
+          <button
+            onClick={() => setTab('supervisors')}
+            className={
+              'px-4 py-1.5 rounded-md font-medium transition ' +
+              (tab === 'supervisors'
+                ? 'bg-slate-900 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100')
+            }
+          >
+            Supervisors
+          </button>
+        </div>
+      )}
+
+      {isFM && tab === 'supervisors' ? (
+        <SupervisorTeamAttendance />
+      ) : (
       <div className="bg-white border border-slate-200 rounded-lg">
         <div className="px-6 py-4 border-b border-slate-100 flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3">
           <div>
@@ -228,7 +287,6 @@ export default function SupervisorAttendance() {
 
         {!workersLoading && !workersError && workers.length > 0 && (
           <div className="px-6 py-3 border-b border-slate-100 flex flex-wrap gap-3 items-center">
-            {/* Search */}
             <div className="flex items-center gap-2 bg-white border border-slate-300 rounded-md px-3 py-2 flex-1 min-w-48">
               <svg className="w-4 h-4 text-slate-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -245,7 +303,6 @@ export default function SupervisorAttendance() {
               )}
             </div>
 
-            {/* Wage type filter */}
             <select
               value={filterWageType}
               onChange={(e) => setFilterWageType(e.target.value)}
@@ -256,7 +313,6 @@ export default function SupervisorAttendance() {
               <option value="monthly_fixed">Monthly wage</option>
             </select>
 
-            {/* Designation filter */}
             <select
               value={filterDesignation}
               onChange={(e) => setFilterDesignation(e.target.value)}
@@ -268,7 +324,6 @@ export default function SupervisorAttendance() {
               ))}
             </select>
 
-            {/* Clear filters */}
             {(searchQuery || filterWageType || filterDesignation) && (
               <button
                 onClick={() => { setSearchQuery(''); setFilterWageType(''); setFilterDesignation('') }}
@@ -299,17 +354,23 @@ export default function SupervisorAttendance() {
               const director = isDirector(w)
               const canHaveOt =
                 entry.status === 'present' || entry.status === 'half_day'
+              const showMarkedBy =
+                entry.status && entry.marked_by && entry.marked_by !== user.id && entry.marked_by_name
 
               return (
                 <li
                   key={w.id}
                   className="px-6 py-3 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 flex-wrap"
                 >
-                  {/* Worker name + error */}
                   <div className="min-w-0 flex-1">
                     <p className="text-sm font-medium text-slate-900 truncate">
                       {w.full_name || 'Unnamed worker'}
                     </p>
+                    {showMarkedBy && (
+                      <p className="text-[11px] text-slate-400 mt-0.5">
+                        Marked by: {entry.marked_by_name}
+                      </p>
+                    )}
                     {entry.error && (
                       <p className="text-xs text-rose-600 mt-0.5">
                         {entry.error}
@@ -324,14 +385,13 @@ export default function SupervisorAttendance() {
                       </span>
                     ) : (
                     <>
-                    {/* Status buttons */}
                     <div className="flex items-center gap-1.5">
                       {STATUS_LIST.map((s) => {
                         const selected = entry.status === s.value
                         return (
                           <button
                             key={s.value}
-                            onClick={() => mark(w.id, s.value)}
+                            onClick={() => mark(w, s.value)}
                             disabled={entry.saving}
                             className={
                               'px-3 py-1 text-xs font-medium rounded-md border transition disabled:opacity-60 ' +
@@ -349,7 +409,6 @@ export default function SupervisorAttendance() {
                       </span>
                     </div>
 
-                    {/* OT hours input — only for present / half-day */}
                     {canHaveOt && (
                       <div className="flex items-center gap-1.5">
                         <span className="text-xs text-slate-500 font-medium">OT</span>
@@ -369,7 +428,7 @@ export default function SupervisorAttendance() {
                             if (e.target.value === '') {
                               setOtLocal(w.id, 0)
                             }
-                            saveOt(w.id)
+                            saveOt(w)
                           }}
                           disabled={entry.savingOt}
                           placeholder="0"
@@ -415,6 +474,7 @@ export default function SupervisorAttendance() {
           </ul>
         )}
       </div>
+      )}
     </DashboardShell>
   )
 }
