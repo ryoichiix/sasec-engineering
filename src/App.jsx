@@ -34,7 +34,6 @@ import BossDevices from './pages/BossDevices'
 import BossAdvances from './pages/BossAdvances'
 import SupervisorAdvances from './pages/SupervisorAdvances'
 import BossWorkerProfile from './pages/BossWorkerProfile'
-import BossStaff from './pages/BossStaff'
 import BossSupervisors from './pages/BossSupervisors'
 import BossExpenses from './pages/BossExpenses'
 import BossVehicles from './pages/BossVehicles'
@@ -180,14 +179,6 @@ export default function App() {
             element={
               <ProtectedRoute allowedRoles={[ROLES.BOSS]}>
                 <BossAdvances />
-              </ProtectedRoute>
-            }
-          />
-          <Route
-            path="/boss/staff"
-            element={
-              <ProtectedRoute allowedRoles={[ROLES.BOSS]}>
-                <BossStaff />
               </ProtectedRoute>
             }
           />

@@ -10,7 +10,7 @@ const sinceDateStr = (daysBack) => {
 
 /**
  * All supervisors except the given user. Site Incharges are supervisors with
- * is_field_manager=true, so they're intentionally included here.
+ * field_manager=true, so they're intentionally included here.
  */
 export function fetchOtherSupervisors(userId) {
   return supabase

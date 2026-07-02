@@ -61,7 +61,7 @@ export async function notifyAllSupervisors({
 }
 
 /**
- * Notify all Field Managers (supervisors with is_field_manager=true).
+ * Notify all Field Managers (supervisors with field_manager=true).
  * Used when a supervisor submits a leave request.
  */
 export async function notifyFieldManagers({
