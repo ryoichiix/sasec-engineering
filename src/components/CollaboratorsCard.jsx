@@ -15,7 +15,21 @@ import { formatDate } from '../lib/dates'
  * The notification references the exact link row (referenceId/referenceType) so
  * the collaborator can Accept / Decline it straight from the notification.
  */
-export default function CollaboratorsCard({ userId, userName, date }) {
+export default function CollaboratorsCard({
+  userId,
+  userName,
+  date,
+  // When embedded inside another card (e.g. the batch form), drop the standalone
+  // card chrome so it reads as a sub-section rather than a nested card.
+  embedded = false,
+  // When false, the picker does NOT auto-expand from persisted links on mount —
+  // it starts collapsed (OFF). The existing day-level selection is still loaded
+  // underneath (so re-opening shows the true saved tags and Save stays disabled
+  // until the user actually changes something), but the section defaults to OFF.
+  // Used by the batch wizard so each new batch starts fresh instead of showing
+  // the previous batch's expanded collaboration state.
+  autoExpand = true,
+}) {
   const [showCollabPicker, setShowCollabPicker] = useState(false)
   const [otherSupervisors, setOtherSupervisors] = useState([])
   const [selectedCollaborators, setSelectedCollaborators] = useState([])
@@ -39,10 +53,10 @@ export default function CollaboratorsCard({ userId, userName, date }) {
       const ids = (linkRes.data || []).map((l) => l.collaborator_id)
       setSelectedCollaborators(ids)
       setInitialSelected(ids)
-      if (ids.length) setShowCollabPicker(true)
+      if (ids.length && autoExpand) setShowCollabPicker(true)
     })()
     return () => { isMounted = false }
-  }, [userId, date])
+  }, [userId, date, autoExpand])
 
   const toggleCollaborator = (id) => {
     setSaved(false)
@@ -87,7 +101,7 @@ export default function CollaboratorsCard({ userId, userName, date }) {
   }
 
   return (
-    <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-8">
+    <div className={embedded ? '' : 'bg-white rounded-2xl border border-gray-100 shadow-sm p-5 mb-8'}>
       <div className="flex items-center justify-between mb-3">
         <div>
           <p className="text-sm font-semibold text-gray-900">Working with another supervisor?</p>

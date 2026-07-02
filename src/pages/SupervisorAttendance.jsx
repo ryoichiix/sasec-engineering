@@ -269,6 +269,7 @@ export default function SupervisorAttendance() {
   const renderWorkerRow = (w) => {
     const entry = rows[w.id] || {}
     const director = isDirector(w)
+    const designation = workerDesignationName(w)
     const dualRole = isDualRoleWorker(w, staff)
     const restricted = dualRole && !isFM
     const canHaveOt = entry.status === 'present' || entry.status === 'half_day'
@@ -282,7 +283,12 @@ export default function SupervisorAttendance() {
       >
         <div className="min-w-0 flex-1">
           <p className="text-sm font-medium text-slate-900 flex items-center gap-2">
-            <span className="truncate">{w.full_name || 'Unnamed worker'}</span>
+            <span className="truncate">
+              {w.full_name || 'Unnamed worker'}
+              {designation && (
+                <span className="font-normal text-slate-400"> ({designation})</span>
+              )}
+            </span>
             {dualRole && (
               <span className="flex-shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200">
                 Supervisor

@@ -14,7 +14,7 @@ async function loadWorkers() {
   if (workersCache) return workersCache
   const { data } = await supabase
     .from('workers')
-    .select('id, full_name')
+    .select('id, full_name, designation_name')
     .order('full_name')
   workersCache = data || []
   return workersCache
@@ -97,7 +97,12 @@ export default function WorkerPickerAutocomplete({ value, onChange, placeholder,
                 }}
                 className="w-full text-left px-3 py-2 text-sm text-slate-700 hover:bg-slate-50 transition flex items-center justify-between gap-2"
               >
-                <span className="truncate">{w.full_name}</span>
+                <span className="truncate">
+                  {w.full_name}
+                  {w.designation_name && (
+                    <span className="text-slate-400"> ({w.designation_name})</span>
+                  )}
+                </span>
                 {isDualRoleWorker(w, staff) && (
                   <span className="flex-shrink-0 text-[10px] font-medium uppercase tracking-wide px-1.5 py-0.5 rounded bg-slate-100 text-slate-500 ring-1 ring-inset ring-slate-200">
                     Supervisor

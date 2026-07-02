@@ -13,6 +13,7 @@ import { fetchAssignmentsRange } from '../../lib/assignments'
 import { fetchBatchesRange } from '../../lib/batches'
 import { fetchCollaborationsRange, buildCollabMap, buildAcceptedMerges } from '../../lib/collaborations'
 import { markWorkFeedViewed } from '../../lib/work-feed'
+import { notifyUser } from '../../lib/notifications'
 import { supabase } from '../../lib/supabase'
 import { formatDate, formatDateTime } from '../../lib/dates'
 import { useAuth } from '../../contexts/auth-context'
@@ -297,6 +298,8 @@ function UpdatesFeed() {
                   key={supId}
                   name={meta.name || 'Unnamed supervisor'}
                   partnerName={partnerName}
+                  targetSupId={supId}
+                  date={g.date}
                   role={roleLabel(meta.role)}
                   report={plansByKey[key] || null}
                   team={team}
@@ -361,7 +364,7 @@ function CollabBadges({ collaboration }) {
   )
 }
 
-function SupervisorCard({ name, partnerName = null, role, report, team, batches = [], collaboration = [], updates, attsByUpdateId, onViewFull }) {
+function SupervisorCard({ name, partnerName = null, targetSupId, date, role, report, team, batches = [], collaboration = [], updates, attsByUpdateId, onViewFull }) {
   const initial = (name || '?').charAt(0).toUpperCase()
   const partnerInitial = partnerName ? partnerName.charAt(0).toUpperCase() : null
   const displayName = partnerName ? `${name} + ${partnerName}` : name
@@ -429,6 +432,8 @@ function SupervisorCard({ name, partnerName = null, role, report, team, batches 
             </button>
           </div>
         )}
+
+        <SiteInchargeBatchActions targetSupId={targetSupId} targetName={name} date={date} />
       </div>
     )
   }
@@ -591,6 +596,105 @@ function SupervisorCard({ name, partnerName = null, role, report, team, batches 
             className="text-xs font-semibold text-[#C0272D] hover:text-red-800 flex items-center gap-1 transition-colors"
           >
             View full plan <span className="text-base leading-none">→</span>
+          </button>
+        </div>
+      )}
+
+      <SiteInchargeBatchActions targetSupId={targetSupId} targetName={name} date={date} />
+    </div>
+  )
+}
+
+// Fix 5: Site Incharge actions on a work-feed card — request more info from, or
+// assign an additional task to, the supervisor who owns this card's batches.
+// Notification-only (no task-tracking data model); always via the notifyUser RPC.
+function SiteInchargeBatchActions({ targetSupId, targetName, date }) {
+  const { profile } = useAuth()
+  const [mode, setMode] = useState(null) // 'info' | 'task' | null
+  const [text, setText] = useState('')
+  const [sending, setSending] = useState(false)
+  const [sent, setSent] = useState(null) // 'info' | 'task' | null
+  const [error, setError] = useState(null)
+
+  const siName = profile?.full_name || 'Site Incharge'
+
+  const submit = async () => {
+    const msg = text.trim()
+    if (!msg || !targetSupId) return
+    const isTask = mode === 'task'
+    setSending(true)
+    setError(null)
+    const { error: err } = await notifyUser({
+      userId: targetSupId,
+      type: isTask ? 'work_feed_additional_task' : 'work_feed_info_request',
+      title: isTask ? '📋 Additional task assigned' : '💬 More info requested',
+      message: isTask
+        ? `${siName} assigned an additional task for ${formatDate(date)}: ${msg}`
+        : `${siName} requested more info about your work on ${formatDate(date)}: ${msg}`,
+    })
+    setSending(false)
+    if (err) { setError(err.message); return }
+    setSent(isTask ? 'task' : 'info')
+    setMode(null)
+    setText('')
+    setTimeout(() => setSent(null), 3500)
+  }
+
+  return (
+    <div className="border-t border-gray-50 px-5 py-3">
+      {sent && (
+        <p className="text-xs text-emerald-600 mb-2">
+          {sent === 'task' ? 'Additional task sent to ' : 'Info request sent to '}{targetName} ✓
+        </p>
+      )}
+
+      {mode ? (
+        <div className="space-y-2">
+          <p className="text-xs font-medium text-gray-600">
+            {mode === 'task'
+              ? `Assign an additional task to ${targetName}`
+              : `Ask ${targetName} for more info`}
+          </p>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={2}
+            autoFocus
+            placeholder={mode === 'task' ? 'Describe the additional task…' : 'What would you like to know?'}
+            className="w-full border border-gray-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#C0272D]"
+          />
+          {error && <p className="text-xs text-rose-600">{error}</p>}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={submit}
+              disabled={sending || !text.trim()}
+              className="bg-[#C0272D] hover:bg-red-800 disabled:opacity-60 text-white text-xs font-semibold px-4 py-2 rounded-lg transition"
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
+            <button
+              onClick={() => { setMode(null); setText(''); setError(null) }}
+              disabled={sending}
+              className="text-xs text-gray-500 hover:text-gray-700 px-2 py-2"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={() => { setMode('info'); setSent(null); setError(null) }}
+            className="text-xs font-semibold text-slate-600 hover:text-slate-900 flex items-center gap-1 transition-colors"
+          >
+            💬 Request more info
+          </button>
+          <span className="text-gray-200">·</span>
+          <button
+            onClick={() => { setMode('task'); setSent(null); setError(null) }}
+            className="text-xs font-semibold text-[#C0272D] hover:text-red-800 flex items-center gap-1 transition-colors"
+          >
+            ➕ Assign additional task
           </button>
         </div>
       )}

@@ -831,6 +831,23 @@ export default function BatchPlanBuilder({
             </div>
           </div>
 
+          {/* Fix 4: "Working with another supervisor" now sits directly above the
+              action buttons, within the batch form (previously below Finish).
+              Fix 3: keyed to the current batch + autoExpand=false so it starts
+              collapsed (OFF) for each new batch instead of carrying over the
+              previous batch's expanded collaboration state. The underlying
+              day-level links are preserved — this only resets the UI default. */}
+          <div className="px-5 py-4 border-t border-gray-50">
+            <CollaboratorsCard
+              key={currentBatch.id}
+              embedded
+              autoExpand={false}
+              userId={supervisorId}
+              userName={supervisorName}
+              date={date}
+            />
+          </div>
+
           {/* Wizard actions */}
           <div className="px-5 py-4 border-t border-gray-50 flex gap-2">
             {editingId ? (
@@ -878,9 +895,6 @@ export default function BatchPlanBuilder({
           + Add another batch
         </button>
       )}
-
-      {/* Collaboration — applies to the whole day, not per-batch */}
-      <CollaboratorsCard userId={supervisorId} userName={supervisorName} date={date} />
 
       {/* ── Worker picker for the current batch ─────────────── */}
       {showPicker && currentBatch && createPortal(
