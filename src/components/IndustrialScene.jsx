@@ -14,6 +14,13 @@
  *   dashboard    — compact site overview (crane + skeleton)
  *   attendance   — site gate with clock, barrier and workers clocking in
  *   workfeed     — supervisor with clipboard reporting from an active bay
+ *   planning     — drafting table, blueprint being sketched, crew reviewing
+ *   office       — site accounts desk: calculator, papers, stamp, cash
+ *   vehicles     — flatbed trailer with beam stock + mobile crane
+ *   fuel         — drum store, dispenser with live gauge, tanker
+ *   weight       — weighbridge: plate lowered on, dial needle kicks
+ *   approvals    — register calendar, clipboard ticks, supervisor writing
+ *   beams        — small steel-section profile strip (corner accent)
  *
  * Pure SVG + CSS animation, no libraries. All motion honors
  * prefers-reduced-motion.
@@ -161,15 +168,80 @@ function SceneStyle() {
         45%,100%{ opacity: 0; }
       }
 
+      /* planning: the blueprint sketches itself, reviewer points */
+      .is-sketch { stroke-dasharray: 300; animation: isSketch 9s ease-in-out infinite; }
+      @keyframes isSketch {
+        0%   { stroke-dashoffset: 300; }
+        42%  { stroke-dashoffset: 0; }
+        80%  { stroke-dashoffset: 0; opacity: 1; }
+        90%  { opacity: 0; }
+        91%  { stroke-dashoffset: 300; opacity: 0; }
+        100% { stroke-dashoffset: 300; opacity: 1; }
+      }
+      .is-point { animation: isPoint 4s ease-in-out infinite; }
+      @keyframes isPoint { 0%,100% { transform: rotate(0deg); } 50% { transform: rotate(-8deg); } }
+
+      /* office: calculator display blinks, stamp presses, mark appears */
+      .is-calc { animation: isCalc 2.6s steps(2) infinite; }
+      @keyframes isCalc { 0%,100% { opacity: 1; } 50% { opacity: 0.15; } }
+      .is-stamp { animation: isStamp 6s ease-in-out infinite; }
+      @keyframes isStamp {
+        0%, 76%, 100% { transform: translateY(0) rotate(0deg); }
+        82%           { transform: translateY(7px) rotate(-2deg); }
+        88%           { transform: translateY(0) rotate(0deg); }
+      }
+      .is-stamp-mark { opacity: 0; animation: isStampMark 6s linear infinite; }
+      @keyframes isStampMark {
+        0%, 82% { opacity: 0; }
+        84%, 97%{ opacity: 1; }
+        100%    { opacity: 0; }
+      }
+
+      /* fuel: gauge needle sweeps, nozzle drips */
+      .is-needle { animation: isNeedle 7s ease-in-out infinite; }
+      @keyframes isNeedle { 0%,100% { transform: rotate(-52deg); } 50% { transform: rotate(46deg); } }
+      .is-drip { animation: isDrip 2.2s ease-in infinite; }
+      @keyframes isDrip {
+        0%   { transform: translateY(0); opacity: 0; }
+        15%  { opacity: 0.9; }
+        80%  { transform: translateY(13px); opacity: 0.9; }
+        100% { transform: translateY(16px); opacity: 0; }
+      }
+
+      /* weighbridge: plate lowers onto the scale, dial needle kicks + settles */
+      .is-scale-drop { animation: isScaleDrop 9s ease-in-out infinite; }
+      @keyframes isScaleDrop {
+        0%, 8%   { transform: translateY(0); opacity: 1; }
+        40%, 55% { transform: translateY(104px); opacity: 1; }
+        58%, 88% { transform: translateY(104px); opacity: 0; }
+        92%      { transform: translateY(0); opacity: 0; }
+        100%     { transform: translateY(0); opacity: 1; }
+      }
+      .is-scale-needle { animation: isScaleNeedle 9s ease-in-out infinite; }
+      @keyframes isScaleNeedle {
+        0%, 36%  { transform: rotate(-62deg); }
+        44%      { transform: rotate(36deg); }
+        48%      { transform: rotate(22deg); }
+        52%, 56% { transform: rotate(29deg); }
+        72%, 100%{ transform: rotate(-62deg); }
+      }
+
+      /* approvals: supervisor scribbles, seal turns slowly */
+      .is-write { animation: isWrite 0.55s ease-in-out infinite alternate; }
+      @keyframes isWrite { from { transform: rotate(-3deg); } to { transform: rotate(3deg); } }
+      .is-seal { animation: isSeal 26s linear infinite; }
+      @keyframes isSeal { to { transform: rotate(360deg); } }
+
       @media (prefers-reduced-motion: reduce) {
         .is-draw, .is-slew-a, .is-slew-b, .is-hook, .is-hoist-cable, .is-hoist-load,
         .is-hoist-beam, .is-spark-install, .is-spark-a, .is-spark-b, .is-beacon,
         .is-walker, .is-leg-a, .is-leg-b, .is-arm-a, .is-arm-b, .is-bob, .is-dim,
-        .is-gate-arm, .is-walker-gate, .is-clock-min, .is-checks, .is-ping-a, .is-ping-b {
+        .is-gate-arm, .is-walker-gate, .is-clock-min, .is-checks, .is-ping-a, .is-ping-b,
+        .is-sketch, .is-point, .is-calc, .is-stamp, .is-stamp-mark, .is-needle,
+        .is-drip, .is-scale-drop, .is-scale-needle, .is-write, .is-seal {
           animation: none !important;
         }
-        .is-draw { stroke-dashoffset: 0; }
-        .is-dim, .is-checks { stroke-dashoffset: 0; }
+        .is-draw, .is-dim, .is-checks, .is-sketch { stroke-dashoffset: 0; }
         .is-spark-a, .is-spark-install, .is-ping-a { opacity: 0.6; }
         .is-beacon { opacity: 0.4; }
       }
@@ -528,6 +600,249 @@ function WorkfeedScene() {
   )
 }
 
+function PlanningScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 238H424" />
+        <path strokeWidth="0.8" d="M60 250l10 -10M200 250l10 -10M340 250l10 -10" />
+        {/* drafting table */}
+        <path d="M60 152H336M80 152V238M316 152V238M80 200H316" />
+        {/* blueprint sheet, slightly tilted */}
+        <g transform="rotate(-2 205 124)">
+          <rect x="104" y="98" width="176" height="54" />
+          <path strokeWidth="0.6" d="M104 116H280M104 134H280M140 98V152M176 98V152M212 98V152M248 98V152" opacity="0.5" />
+          {/* the plan sketches itself — a little building frame */}
+          <path className="is-sketch" strokeWidth="1" d="M124 144V116M152 144V108M180 144V108M208 144V116M124 116L152 108M152 108H180M180 108L208 116M124 130H208" />
+        </g>
+        {/* rolled drawing on table end */}
+        <circle cx="304" cy="142" r="8" />
+        <circle cx="304" cy="142" r="3" />
+        <path d="M304 134H344M304 150H344M344 134V150" />
+        {/* T-square leaning on the table */}
+        <path d="M368 238L384 152M356 152H396" />
+        {/* two reviewers behind the table */}
+        <path d="M133 78Q140 72 147 78" />
+        <circle cx="140" cy="82" r="5" />
+        <path d="M140 88V120M140 96L124 108" />
+        <g className="is-point" style={{ transformOrigin: '140px 96px' }}>
+          <path d="M140 96L162 102" />
+        </g>
+        <path d="M225 76Q232 70 239 76" />
+        <circle cx="232" cy="80" r="5" />
+        <path d="M232 86V120M232 94L214 104M232 94L250 102" />
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="60" y="256" fontSize="8" letterSpacing="2">DWG REVIEW — BAY 2</text>
+      </g>
+    </svg>
+  )
+}
+
+function OfficeScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 238H424" />
+        <path strokeWidth="0.8" d="M60 250l10 -10M200 250l10 -10M340 250l10 -10" />
+        {/* desk with drawer unit */}
+        <path d="M50 170H340M70 170V238M320 170V238M244 170V212H312V170M244 190H312" />
+        <circle cx="278" cy="181" r="1.5" />
+        <circle cx="278" cy="201" r="1.5" />
+        {/* desk lamp */}
+        <path d="M64 170V124C64 110 78 110 84 118M78 108L98 126" />
+        {/* calculator with blinking display */}
+        <rect x="92" y="128" width="46" height="40" />
+        <path className="is-calc" d="M98 136H132" />
+        <circle cx="101" cy="148" r="1.5" /><circle cx="115" cy="148" r="1.5" /><circle cx="129" cy="148" r="1.5" />
+        <circle cx="101" cy="156" r="1.5" /><circle cx="115" cy="156" r="1.5" /><circle cx="129" cy="156" r="1.5" />
+        <circle cx="101" cy="164" r="1.5" /><circle cx="115" cy="164" r="1.5" /><circle cx="129" cy="164" r="1.5" />
+        {/* paper stack */}
+        <path d="M154 168H218V160H154ZM158 160H214V153H158ZM162 153H210V146H162Z" />
+        <path strokeWidth="0.7" d="M170 149H200M168 156H204" />
+        {/* rubber stamp pressing an approval mark */}
+        <g className="is-stamp">
+          <path d="M250 118V132M240 132H260V142H240Z" />
+          <circle cx="250" cy="114" r="4" />
+        </g>
+        <path className="is-stamp-mark" strokeWidth="1.2" d="M244 152l4 5 8 -9" />
+        {/* cash — coin stack */}
+        <ellipse cx="360" cy="164" rx="11" ry="3.5" />
+        <ellipse cx="360" cy="157" rx="11" ry="3.5" />
+        <ellipse cx="360" cy="150" rx="11" ry="3.5" />
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="330" y="138" fontSize="11">₹</text>
+        <text x="60" y="256" fontSize="8" letterSpacing="2">ACCOUNTS — SITE OFFICE</text>
+      </g>
+    </svg>
+  )
+}
+
+function VehiclesScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 222H424" />
+        <path strokeWidth="0.8" d="M50 234l10 -10M170 234l10 -10M290 234l10 -10M400 234l10 -10" />
+        {/* flatbed truck with beam stock */}
+        <path d="M60 196V166H98L112 182V196M68 172H88V184H68Z" />
+        <path d="M112 196H260V186H112M118 182H254M118 176H254M118 176V182M254 176V182" />
+        <circle cx="84" cy="208" r="11" /><circle cx="84" cy="208" r="4" />
+        <circle cx="136" cy="208" r="11" /><circle cx="136" cy="208" r="4" />
+        <circle cx="232" cy="208" r="11" /><circle cx="232" cy="208" r="4" />
+        {/* exhaust stack + puffs */}
+        <path d="M64 166V148" />
+        <path className="is-ping-a" strokeWidth="0.9" d="M62 142a5 5 0 0 1 6 -4" />
+        <path className="is-ping-b" strokeWidth="0.9" d="M58 132a8 8 0 0 1 10 -5" />
+        {/* mobile crane */}
+        <path d="M286 204V186H382V204M296 186V172H326V186" />
+        <path d="M306 172L398 92M310 178L398 98M398 92V98" />
+        <circle cx="304" cy="214" r="10" /><circle cx="304" cy="214" r="3.5" />
+        <circle cx="362" cy="214" r="10" /><circle cx="362" cy="214" r="3.5" />
+        {/* outriggers */}
+        <path d="M290 204L282 222M378 204L386 222" />
+        {/* hook from boom tip */}
+        <g className="is-hook" style={{ transformOrigin: '398px 96px' }}>
+          <path strokeWidth="0.9" d="M398 98V138" />
+          <circle cx="398" cy="142" r="3.5" />
+          <path d="M398 146C398 151 392 152 392 156C392 160 397 161 399 158" />
+        </g>
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="60" y="252" fontSize="8" letterSpacing="2">FLEET — TRAILER 04 · CRANE 02</text>
+      </g>
+    </svg>
+  )
+}
+
+function FuelScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 226H424" />
+        <path strokeWidth="0.8" d="M50 238l10 -10M170 238l10 -10M290 238l10 -10M400 238l10 -10" />
+        {/* drum store — three ribbed drums */}
+        <path d="M62 226V138M98 226V138" />
+        <ellipse cx="80" cy="138" rx="18" ry="5" />
+        <path d="M62 226C62 229 98 229 98 226M62 166H98M62 196H98" />
+        <path d="M110 226V150M146 226V150" />
+        <ellipse cx="128" cy="150" rx="18" ry="5" />
+        <path d="M110 226C110 229 146 229 146 226M110 176H146M110 202H146" />
+        {/* dipstick leaning on drum */}
+        <path d="M168 226L186 128M175 190l6 1M179 168l6 1M183 148l6 1" />
+        {/* dispenser with live gauge + hose + dripping nozzle */}
+        <path d="M240 226V96H286V226M240 226H286" />
+        <circle cx="263" cy="118" r="15" />
+        <path strokeWidth="0.8" d="M263 106V110M275 118H271M263 130V126M251 118H255" />
+        <g className="is-needle" style={{ transformOrigin: '263px 118px' }}>
+          <path d="M263 118V107" />
+        </g>
+        <path d="M248 146H278M248 156H278" strokeWidth="0.7" />
+        <path d="M286 160C312 160 318 178 318 192M318 192V202M314 202H322" />
+        <path className="is-drip" strokeWidth="1.4" d="M318 208v3" />
+        {/* tanker */}
+        <path d="M336 196V172C336 164 344 160 352 160H404C412 160 420 164 420 172V196" />
+        <path d="M336 196H420M352 160V152H368V160" />
+        <circle cx="356" cy="208" r="9" /><circle cx="402" cy="208" r="9" />
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="60" y="254" fontSize="8" letterSpacing="2">FUEL STORE — DEPOT</text>
+      </g>
+    </svg>
+  )
+}
+
+function WeightScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 226H424" />
+        <path strokeWidth="0.8" d="M50 238l10 -10M170 238l10 -10M290 238l10 -10M400 238l10 -10" />
+        {/* weighbridge platform + pillar + dial */}
+        <path d="M140 214H300M140 214V200H300V214M216 200V128" />
+        <circle cx="216" cy="100" r="26" />
+        <path strokeWidth="0.8" d="M216 78V84M238 100H232M216 122V116M194 100H200M232 84L228 88M232 116L228 112M200 84L204 88" />
+        <g className="is-scale-needle" style={{ transformOrigin: '216px 100px' }}>
+          <path d="M216 100V80" />
+        </g>
+        {/* plates already on the platform */}
+        <path d="M164 200H268V193H164ZM170 193H262V186H170Z" />
+        {/* crane lowers one more plate onto the stack */}
+        <g className="is-scale-drop">
+          <path strokeWidth="0.9" d="M330 0V52M330 56L306 72M330 56L354 72" />
+          <circle cx="330" cy="54" r="3.5" />
+          <path d="M300 74H360V80H300Z" />
+        </g>
+        {/* calipers + tape */}
+        <path d="M368 214L382 172M396 214L382 172" />
+        <circle cx="382" cy="172" r="3" />
+        <path d="M60 214H86V202H60ZM86 208H112M108 205V211" />
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="60" y="254" fontSize="8" letterSpacing="2">WEIGHBRIDGE — QA</text>
+      </g>
+    </svg>
+  )
+}
+
+function ApprovalsScene() {
+  return (
+    <svg viewBox="0 0 440 260" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1.1" {...INK}>
+        <path d="M16 238H424" />
+        <path strokeWidth="0.8" d="M60 250l10 -10M200 250l10 -10M340 250l10 -10" />
+        {/* wall calendar */}
+        <rect x="70" y="80" width="110" height="90" />
+        <path d="M70 98H180M95 80V72M155 80V72" />
+        <path strokeWidth="0.6" d="M70 122H180M70 146H180M97 98V170M125 98V170M152 98V170" opacity="0.6" />
+        {/* day ticks appear in sequence */}
+        <path className="is-checks" strokeWidth="1.1" d="M78 108l4 4 6 -7M106 132l4 4 6 -7M134 156l4 4 6 -7" />
+        {/* register stand + clipboard */}
+        <path d="M336 238V166M312 166H360" />
+        <path d="M224 96H300V196H224ZM252 96V86H272V96" />
+        <path strokeWidth="0.7" d="M234 112H290M234 126H284M234 140H290M234 154H280" />
+        <path className="is-checks" strokeWidth="1.1" d="M234 168l4 4 7 -8" />
+        {/* supervisor writing at the stand */}
+        <path d="M363 128Q370 122 377 128" />
+        <circle cx="370" cy="132" r="5" />
+        <path d="M370 138V172M370 172L362 200M370 172L378 200M370 146L354 158" />
+        <g className="is-write" style={{ transformOrigin: '370px 146px' }}>
+          <path d="M370 146L348 162M348 162l-4 3" />
+        </g>
+        {/* rotating dashed approval seal */}
+        <g className="is-seal" style={{ transformOrigin: '150px 210px' }}>
+          <circle cx="150" cy="210" r="16" strokeDasharray="5 4" />
+        </g>
+        <path strokeWidth="1.2" d="M143 210l5 5 9 -10" />
+      </g>
+      <g fill="currentColor" stroke="none" fontFamily={MONO}>
+        <text x="60" y="64" fontSize="8" letterSpacing="2">APPROVALS — REGISTER</text>
+      </g>
+    </svg>
+  )
+}
+
+/** Small steel-section profile strip — corner accent, static. */
+function BeamsAccent() {
+  return (
+    <svg viewBox="0 0 220 84" fill="none" className="h-full w-full" aria-hidden="true">
+      <g stroke="currentColor" strokeWidth="1" {...INK}>
+        {/* I-section */}
+        <path d="M16 14H56V24H42V56H56V66H16V56H30V24H16Z" />
+        <path strokeWidth="0.6" strokeDasharray="6 3 2 3" d="M36 8V72" />
+        {/* channel section */}
+        <path d="M104 14H76V66H104M104 14V24H86V56H104V66" />
+        {/* angle section */}
+        <path d="M126 14V66H166M126 14H136V56H166V66" />
+        {/* dimension under */}
+        <path strokeWidth="0.7" d="M16 76H166M16 72V80M166 72V80" />
+        <path strokeWidth="0.7" d="M186 14V66M182 14H190M182 66H190" />
+      </g>
+    </svg>
+  )
+}
+
 /* ────────────────────────────── component ─────────────────────────────── */
 
 const VARIANTS = {
@@ -535,6 +850,13 @@ const VARIANTS = {
   dashboard: DashboardScene,
   attendance: AttendanceScene,
   workfeed: WorkfeedScene,
+  planning: PlanningScene,
+  office: OfficeScene,
+  vehicles: VehiclesScene,
+  fuel: FuelScene,
+  weight: WeightScene,
+  approvals: ApprovalsScene,
+  beams: BeamsAccent,
 }
 
 export default function IndustrialScene({ variant = 'dashboard', className = '' }) {

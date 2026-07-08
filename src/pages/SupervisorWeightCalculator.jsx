@@ -6,6 +6,7 @@ import {
   CheckCircle2, AlertTriangle,
 } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
+import IndustrialLoader from '../components/IndustrialLoader'
 import Toast from '../components/Toast'
 import { useAuth } from '../contexts/auth-context'
 import {
@@ -210,9 +211,7 @@ export default function SupervisorWeightCalculator() {
   if (loading) {
     return (
       <DashboardShell title="Weight Calculator">
-        <div className="flex items-center gap-2 text-slate-500 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-        </div>
+        <IndustrialLoader />
       </DashboardShell>
     )
   }

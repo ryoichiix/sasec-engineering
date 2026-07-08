@@ -7,6 +7,7 @@ import { fetchPendingApprovalCounts } from '../lib/approvals'
 import { getWorkFeedLastViewed, markWorkFeedViewed, fetchWorkFeedUnreadCount } from '../lib/work-feed'
 import NotificationBell from './NotificationBell'
 import BottomNav from './BottomNav'
+import BlueprintCanvas from './BlueprintCanvas'
 
 function initials(name) {
   if (!name) return '?'
@@ -93,6 +94,9 @@ export default function DashboardShell({ title, children }) {
           md:relative md:translate-x-0 md:flex-shrink-0
         `}
       >
+        {/* Faint blueprint grid over the navy sidebar */}
+        <div className="bp-grid-dark absolute inset-0 pointer-events-none" aria-hidden="true" />
+
         {/* Brand */}
         <div className="flex items-center gap-3 px-5 py-5 border-b border-white/10 relative">
           <img src="/logo.png" alt="SASEC" className="h-9 w-9 object-contain flex-shrink-0" />
@@ -172,7 +176,9 @@ export default function DashboardShell({ title, children }) {
       </aside>
 
       {/* ── Main column ──────────────────────────────────── */}
-      <div className="flex flex-1 flex-col overflow-hidden min-w-0">
+      <div className="relative flex flex-1 flex-col overflow-hidden min-w-0">
+        {/* Industrial blueprint backdrop — grid + per-route scene */}
+        <BlueprintCanvas />
         {/* Top bar */}
         <header className="flex items-center gap-4 bg-white/80 backdrop-blur-xl border-b border-[#E2E8F0] px-4 md:px-6 py-3 flex-shrink-0 z-10">
           <button
@@ -185,7 +191,7 @@ export default function DashboardShell({ title, children }) {
 
           <div className="flex items-center gap-2 flex-1 min-w-0">
             <span className="inline-block h-5 w-1 rounded-full bg-[#C0272D] flex-shrink-0" />
-            <h1 className="text-base font-bold text-[#0F172A] truncate">{title}</h1>
+            <h1 className="f-disp text-[19px] font-bold uppercase tracking-[0.05em] text-[#0F172A] truncate">{title}</h1>
           </div>
 
           <NotificationBell />
@@ -229,14 +235,14 @@ export default function DashboardShell({ title, children }) {
         </header>
 
         {/* Scrollable content — route fade via key */}
-        <main className="flex-1 overflow-y-auto">
+        <main className="relative z-[1] flex-1 overflow-y-auto">
           <div key={title} className="max-w-7xl mx-auto px-4 md:px-6 py-6 md:py-8 pb-24 md:pb-8 animate-fade-in">
             {children}
           </div>
 
           <footer className="hidden md:block mt-8 py-6 px-6 border-t border-[#E2E8F0]">
-            <p className="text-center text-[11px] text-[#94A3B8]">
-              SASEC Engineering PVT. LTD. &copy; 2025 &mdash; Confidential
+            <p className="f-mono text-center text-[10px] tracking-[0.18em] text-[#94A3B8]">
+              SASEC ENGINEERING PVT. LTD. &copy; 2026 &mdash; CONFIDENTIAL
             </p>
           </footer>
         </main>

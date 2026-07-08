@@ -337,6 +337,80 @@ select:focus:not([class*="bg-"]) {
 .animate-orb-2      { animation: orbDrift2 22s ease-in-out infinite; }
 .animate-orb-3      { animation: orbDrift3 18s ease-in-out infinite; }
 
+/* ============================================================
+   Industrial blueprint design language — global tokens
+   (extends the login page's world across the whole app)
+   ============================================================ */
+
+/* Typography voices */
+.f-disp { font-family: 'Barlow Condensed', 'Inter', sans-serif; }
+.f-mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; }
+
+/* Blueprint grid — light surface (app pages) and dark surface (sidebar) */
+.bp-grid-light {
+  background-image:
+    linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+.bp-grid-dark {
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 40px 40px;
+}
+
+/* Card reveal — drafted in like a technical drawing: rise + a red
+   drafting line sweeping the top edge, then fading */
+.card {
+  position: relative;
+  animation: bpCardIn 0.4s cubic-bezier(0.2, 0.6, 0.2, 1) both;
+}
+.card::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10px;
+  height: 1px;
+  width: 0;
+  background: linear-gradient(90deg, rgba(192, 39, 45, 0.55), rgba(143, 163, 191, 0));
+  animation: bpDraftLine 0.9s ease-out 0.08s forwards;
+  pointer-events: none;
+}
+@keyframes bpCardIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes bpDraftLine {
+  0%   { width: 0;   opacity: 1; }
+  70%  { width: 55%; opacity: 1; }
+  100% { width: 55%; opacity: 0; }
+}
+
+/* Hover trace — a dashed registration outline snaps in around the element */
+.card-hover {
+  outline: 1px dashed transparent;
+  outline-offset: 7px;
+  transition: transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease,
+    outline-offset 0.22s ease, outline-color 0.22s ease;
+}
+.card-hover:hover { outline-color: rgba(15, 23, 42, 0.22); outline-offset: 3px; }
+.btn-brand {
+  outline: 1px dashed transparent;
+  outline-offset: 7px;
+  transition: background 150ms ease, transform 150ms ease, box-shadow 150ms ease,
+    outline-offset 0.22s ease, outline-color 0.22s ease;
+}
+.btn-brand:hover:not(:disabled) { outline-color: rgba(192, 39, 45, 0.4); outline-offset: 3px; }
+.btn-ghost { outline: 1px dashed transparent; outline-offset: 7px; }
+.btn-ghost:hover:not(:disabled) { outline-color: rgba(100, 116, 139, 0.35); outline-offset: 3px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .card { animation: none; }
+  .card::after { animation: none; opacity: 0; }
+  .card-hover, .btn-brand, .btn-ghost { transition: none; }
+}
+
 /* Skeleton shimmer */
 .skeleton {
   background: linear-gradient(

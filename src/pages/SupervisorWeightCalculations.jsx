@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { Plus, Calculator, Loader2, Trash2, ChevronRight, FileSpreadsheet } from 'lucide-react'
 import DashboardShell from '../components/DashboardShell'
+import IndustrialLoader from '../components/IndustrialLoader'
 import Toast from '../components/Toast'
 import { useAuth } from '../contexts/auth-context'
 import { fetchMyCalculations, deleteCalculation } from '../lib/weight-calculations'
@@ -65,9 +66,7 @@ export default function SupervisorWeightCalculations() {
       </div>
 
       {loading ? (
-        <div className="flex items-center gap-2 text-slate-500 text-sm">
-          <Loader2 className="h-4 w-4 animate-spin" /> Loading…
-        </div>
+        <IndustrialLoader />
       ) : rows.length === 0 ? (
         <div className="bg-white border border-[#E2E8F0] rounded-xl shadow-sm px-6 py-16 text-center">
           <div className="mx-auto h-12 w-12 rounded-xl bg-[#FFF1F1] flex items-center justify-center mb-3">

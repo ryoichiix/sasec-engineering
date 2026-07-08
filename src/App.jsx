@@ -8,6 +8,7 @@ import WorkerNotAllowed from './components/WorkerNotAllowed'
 import { roleHome } from './lib/roles'
 import { ROLES } from './lib/supabase'
 import Login from './pages/Login'
+import IndustrialLoader from './components/IndustrialLoader'
 // Signup removed — no public registration. All accounts created by Boss.
 import BossDashboard from './pages/BossDashboard'
 import SupervisorDashboard from './pages/SupervisorDashboard'
@@ -44,10 +45,10 @@ import Notifications from './pages/Notifications'
 
 function PageFallback() {
   return (
-    <div className="min-h-screen flex items-center justify-center bg-site-bg">
-      <div className="flex flex-col items-center gap-3">
+    <div className="min-h-screen flex items-center justify-center bg-site-bg bp-grid-light">
+      <div className="flex flex-col items-center gap-4">
         <img src="/logo.png" alt="SASEC" className="h-14 w-14 object-contain opacity-80" />
-        <p className="text-sm text-slate-500">Loading…</p>
+        <IndustrialLoader />
       </div>
     </div>
   )
@@ -57,10 +58,10 @@ function RootRedirect() {
   const { user, profile, loading } = useAuth()
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-site-bg">
-        <div className="flex flex-col items-center gap-3">
+      <div className="min-h-screen flex items-center justify-center bg-site-bg bp-grid-light">
+        <div className="flex flex-col items-center gap-4">
           <img src="/logo.png" alt="SASEC" className="h-14 w-14 object-contain opacity-80" />
-          <p className="text-sm text-slate-500">Loading…</p>
+          <IndustrialLoader />
         </div>
       </div>
     )
