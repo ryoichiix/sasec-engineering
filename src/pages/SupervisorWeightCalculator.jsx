@@ -30,7 +30,7 @@ export default function SupervisorWeightCalculator() {
   const [drawingRef, setDrawingRef]   = useState('')
   const [items, setItems]             = useState([])
 
-  const [imageFiles, setImageFiles] = useState([])   // up to 3 photos, sent to Claude separately
+  const [imageFiles, setImageFiles] = useState([])   // up to 3 photos, sent to Claude Vision separately
   const [imagePath, setImagePath]   = useState(null)
   const [remotePreview, setRemotePreview] = useState(null)
 
@@ -122,8 +122,8 @@ export default function SupervisorWeightCalculator() {
     setExtractSummary(null)
     setProgressLog([])
     try {
-      const apiKey = import.meta.env.VITE_GEMINI_API_KEY
-      if (!apiKey) throw new Error('Gemini API key not configured. Add VITE_GEMINI_API_KEY to .env.local')
+      const apiKey = import.meta.env.VITE_ANTHROPIC_API_KEY
+      if (!apiKey) throw new Error('Claude API key not configured. Add VITE_ANTHROPIC_API_KEY to .env.local')
 
       const extracted = await extractTableFromImage(
         imageFiles,
