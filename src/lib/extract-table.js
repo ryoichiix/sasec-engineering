@@ -302,6 +302,14 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
     body: JSON.stringify({
       model: 'claude-sonnet-5',
       max_tokens: 16000,
+      // Explicitly off: this is a deterministic extraction task with no need
+      // for reasoning, and Sonnet 5 runs adaptive thinking by default when
+      // this field is omitted (unlike Sonnet 4.6, which defaulted to no
+      // thinking) — that inserts a `thinking` block before the `text` block
+      // in `content`, shifting its index. Parsing below finds the text block
+      // by type rather than assuming position, but there's no reason to pay
+      // the extra thinking tokens/latency for this task either way.
+      thinking: { type: 'disabled' },
       messages: [{
         role: 'user',
         content: [
@@ -323,7 +331,12 @@ async function extractRowsFromOnePhoto(file, apiKey, photoIndex, photoCount, onP
   }
 
   const data = await response.json()
-  const text = data.content?.[0]?.text || ''
+
+  if (data.stop_reason === 'refusal') {
+    throw new Error(`Claude declined to process photo ${photoIndex + 1}. Try a different image.`)
+  }
+
+  const text = data.content?.find((block) => block.type === 'text')?.text || ''
 
   onProgress?.(`Parsing ${photoLabel}…`)
 
